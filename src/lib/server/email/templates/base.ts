@@ -69,9 +69,11 @@ export function generateMeetingDetailsCard(options: {
 	formattedDate: string;
 	formattedTime: string;
 	meetingUrl?: string | null;
+	meetingType?: 'google_meet' | 'teams';
 	brandColor?: string;
 }): string {
-	const { eventName, eventDescription, formattedDate, formattedTime, meetingUrl, brandColor = '#3b82f6' } = options;
+	const { eventName, eventDescription, formattedDate, formattedTime, meetingUrl, meetingType = 'google_meet', brandColor = '#3b82f6' } = options;
+	const meetingLabel = meetingType === 'teams' ? 'Microsoft Teams' : 'Google Meet';
 
 	return `
 <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 30px;">
@@ -98,7 +100,7 @@ export function generateMeetingDetailsCard(options: {
 			${meetingUrl ? `
 			<div>
 				<div style="color: #6b7280; font-size: 14px; margin-bottom: 4px;">Location</div>
-				<a href="${meetingUrl}" style="color: ${brandColor}; font-size: 16px; font-weight: 500; text-decoration: none;">Google Meet</a>
+				<a href="${meetingUrl}" style="color: ${brandColor}; font-size: 16px; font-weight: 500; text-decoration: none;">${meetingLabel}</a>
 			</div>
 			` : ''}
 		</td>

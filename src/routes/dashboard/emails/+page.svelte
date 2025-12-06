@@ -185,8 +185,8 @@
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
 					</svg>
 					<div class="text-sm text-green-800">
-						<p class="font-medium mb-1">Google Calendar Notifications</p>
-						<p>Your attendees will always receive Google Calendar invitations with meeting details and Google Meet links. The emails below are <strong>additional</strong> custom notifications you can send.</p>
+						<p class="font-medium mb-1">Calendar Notifications</p>
+						<p>Your attendees will always receive calendar invitations with meeting details and video call links (Google Meet or Microsoft Teams). The emails below are <strong>additional</strong> custom notifications you can send.</p>
 					</div>
 				</div>
 			</div>

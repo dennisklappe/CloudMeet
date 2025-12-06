@@ -1,11 +1,12 @@
 /**
  * Bookings API endpoint
- * Creates new bookings and adds them to Google Calendar
+ * Creates new bookings and adds them to Google Calendar and/or Outlook Calendar
  */
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { createCalendarEvent, getValidAccessToken } from '$lib/server/google-calendar';
+import { createOutlookCalendarEvent, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
 import { sendBookingEmail, sendAdminNotificationEmail, getEmailTemplates, isEmailEnabled, type EmailTemplateType } from '$lib/server/email';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
@@ -64,20 +65,37 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 		// Get the first (and only) user for single-user setup
 		const user = await db
-			.prepare('SELECT id, email, name, slug, contact_email, settings, brand_color FROM users LIMIT 1')
-			.first<{ id: string; email: string; name: string; slug: string; contact_email: string | null; settings: string | null; brand_color: string | null }>();
+			.prepare('SELECT id, email, name, slug, contact_email, settings, brand_color, outlook_refresh_token FROM users LIMIT 1')
+			.first<{ id: string; email: string; name: string; slug: string; contact_email: string | null; settings: string | null; brand_color: string | null; outlook_refresh_token: string | null }>();
 
 		if (!user) {
 			throw error(404, 'User not found');
 		}
 
 		const eventType = await db
-			.prepare('SELECT id, name, duration_minutes as duration, description FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1')
+			.prepare('SELECT id, name, duration_minutes as duration, description, invite_calendar FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1')
 			.bind(user.id, eventSlug)
-			.first<{ id: string; name: string; duration: number; description: string }>();
+			.first<{ id: string; name: string; duration: number; description: string; invite_calendar: string | null }>();
 
 		if (!eventType) {
 			throw error(404, 'Event type not found or inactive');
+		}
+
+		// Parse user settings for global calendar defaults
+		let userSettings: { defaultInviteCalendar?: string } = {};
+		try {
+			userSettings = user.settings ? JSON.parse(user.settings) : {};
+		} catch {
+			userSettings = {};
+		}
+
+		// Get calendar settings: use event type override if set, otherwise use global settings
+		// Fall back to Google if Outlook was selected but is no longer connected
+		const outlookConnected = !!user.outlook_refresh_token;
+		const outlookConfigured = !!(env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET);
+		let inviteCalendar = eventType.invite_calendar || userSettings.defaultInviteCalendar || 'google';
+		if (inviteCalendar === 'outlook' && (!outlookConnected || !outlookConfigured)) {
+			inviteCalendar = 'google'; // Fall back to Google
 		}
 
 		// Verify slot is still available
@@ -102,46 +120,77 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			throw error(409, 'This time slot is no longer available');
 		}
 
-		// Create calendar event in Google Calendar
-		let calendarEventId: string | null = null;
+		// Create calendar event in the selected calendar only (one calendar sends the invite)
+		let googleEventId: string | null = null;
+		let outlookEventId: string | null = null;
 		let meetingUrl: string | null = null;
 
-		try {
-			const accessToken = await getValidAccessToken(
-				db,
-				user.id,
-				env.GOOGLE_CLIENT_ID,
-				env.GOOGLE_CLIENT_SECRET
-			);
+		if (inviteCalendar === 'google') {
+			// Create Google Calendar event with Google Meet
+			try {
+				const accessToken = await getValidAccessToken(
+					db,
+					user.id,
+					env.GOOGLE_CLIENT_ID,
+					env.GOOGLE_CLIENT_SECRET
+				);
 
-			const calendarEvent = await createCalendarEvent(accessToken, {
-				summary: `${eventType.name} with ${attendeeName}`,
-				description: `${eventType.description || ''}\n\nAttendee: ${attendeeName} (${attendeeEmail})${notes ? `\n\nNotes from attendee:\n${notes}` : ''}`,
-				start: {
-					dateTime: startDateTime.toISOString(),
-					timeZone: 'UTC'
-				},
-				end: {
-					dateTime: endDateTime.toISOString(),
-					timeZone: 'UTC'
-				},
-				attendees: [
-					{ email: attendeeEmail }
-				],
-				conferenceData: {
-					createRequest: {
-						requestId: crypto.randomUUID(),
-						conferenceSolutionKey: { type: 'hangoutsMeet' }
+				const calendarEvent = await createCalendarEvent(accessToken, {
+					summary: `${eventType.name} with ${attendeeName}`,
+					description: `${eventType.description || ''}\n\nAttendee: ${attendeeName} (${attendeeEmail})${notes ? `\n\nNotes from attendee:\n${notes}` : ''}`,
+					start: {
+						dateTime: startDateTime.toISOString(),
+						timeZone: 'UTC'
+					},
+					end: {
+						dateTime: endDateTime.toISOString(),
+						timeZone: 'UTC'
+					},
+					attendees: [
+						{ email: attendeeEmail }
+					],
+					conferenceData: {
+						createRequest: {
+							requestId: crypto.randomUUID(),
+							conferenceSolutionKey: { type: 'hangoutsMeet' }
+						}
 					}
-				}
-			});
+				});
 
-			calendarEventId = calendarEvent.id;
-			// Use the Google Meet link from the calendar event
-			meetingUrl = calendarEvent.hangoutLink || calendarEvent.htmlLink || null;
-		} catch (err) {
-			console.error('Error creating Google Calendar event:', err);
-			// Continue without calendar event if there's an error
+				googleEventId = calendarEvent.id;
+				meetingUrl = calendarEvent.hangoutLink || null;
+			} catch (err) {
+				console.error('Error creating Google Calendar event:', err);
+				// Continue without Google Calendar event if there's an error
+			}
+		} else if (inviteCalendar === 'outlook' && env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) {
+			// Create Outlook Calendar event with Teams meeting
+			try {
+				const outlookToken = await getValidOutlookAccessToken(
+					db,
+					user.id,
+					env.MICROSOFT_CLIENT_ID,
+					env.MICROSOFT_CLIENT_SECRET
+				);
+
+				const outlookEvent = await createOutlookCalendarEvent(outlookToken, {
+					summary: `${eventType.name} with ${attendeeName}`,
+					description: `${eventType.description || ''}\n\nAttendee: ${attendeeName} (${attendeeEmail})${notes ? `\n\nNotes from attendee:\n${notes}` : ''}`,
+					startTime: startDateTime.toISOString(),
+					endTime: endDateTime.toISOString(),
+					attendeeEmail,
+					hostEmail: user.email,
+					createTeamsMeeting: true
+				});
+
+				outlookEventId = outlookEvent.id;
+				if (outlookEvent.onlineMeeting?.joinUrl) {
+					meetingUrl = outlookEvent.onlineMeeting.joinUrl;
+				}
+			} catch (err) {
+				console.error('Error creating Outlook Calendar event:', err);
+				// Continue without Outlook Calendar event if there's an error
+			}
 		}
 
 		// Create booking in database
@@ -150,8 +199,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				`INSERT INTO bookings (
 					user_id, event_type_id, start_time, end_time,
 					attendee_name, attendee_email, attendee_notes, status,
-					google_event_id, meeting_url, created_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, CURRENT_TIMESTAMP)`
+					google_event_id, outlook_event_id, meeting_url, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, CURRENT_TIMESTAMP)`
 			)
 			.bind(
 				user.id,
@@ -161,7 +210,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				attendeeName,
 				attendeeEmail,
 				notes || null,
-				calendarEventId,
+				googleEventId,
+				outlookEventId,
 				meetingUrl
 			)
 			.run();
@@ -188,8 +238,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 				// Get the booking ID (it's a UUID string, not integer)
 				const bookingResult = await db
-					.prepare('SELECT id FROM bookings WHERE google_event_id = ? OR (user_id = ? AND start_time = ? AND attendee_email = ?)')
-					.bind(calendarEventId, user.id, startTime, attendeeEmail)
+					.prepare('SELECT id FROM bookings WHERE google_event_id = ? OR outlook_event_id = ? OR (user_id = ? AND start_time = ? AND attendee_email = ?)')
+					.bind(googleEventId, outlookEventId, user.id, startTime, attendeeEmail)
 					.first<{ id: string }>();
 				const bookingId = bookingResult?.id || result.meta.last_row_id?.toString() || '';
 
@@ -205,6 +255,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 					startTime: startDateTime,
 					endTime: endDateTime,
 					meetingUrl,
+					meetingType: (inviteCalendar === 'outlook' ? 'teams' : 'google_meet') as 'google_meet' | 'teams',
 					bookingId,
 					hostName: user.name,
 					hostEmail: user.email,
@@ -269,7 +320,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return json({
 			success: true,
 			bookingId: result.meta.last_row_id,
-			meetingUrl
+			meetingUrl,
+			meetingType: inviteCalendar === 'outlook' ? 'teams' : 'google_meet'
 		});
 	} catch (err: any) {
 		console.error('Booking creation error:', err);

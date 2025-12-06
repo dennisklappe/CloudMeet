@@ -12,6 +12,7 @@
 			duration: number;
 			description?: string | null;
 			cover_image?: string | null;
+			invite_calendar?: string | null;
 		} | null;
 		selectedDate: string | null;
 		selectedSlot: { start: string; end: string } | null;
@@ -27,6 +28,8 @@
 		brandColor,
 		formatTime
 	}: Props = $props();
+
+	const meetingLabel = eventType?.invite_calendar === 'outlook' ? 'Microsoft Teams' : 'Google Meet';
 </script>
 
 <div class="w-72 border-r border-gray-200 flex flex-col flex-shrink-0">
@@ -61,7 +64,7 @@
 				<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
 				</svg>
-				<span>Google Meet</span>
+				<span>{meetingLabel}</span>
 			</div>
 		</div>
 

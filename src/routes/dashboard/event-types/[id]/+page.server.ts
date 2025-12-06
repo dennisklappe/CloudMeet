@@ -20,10 +20,31 @@ export const load: PageServerLoad = async (event) => {
 
 	const eventTypeId = event.params.id;
 
+	// Get user info for calendar connection status and settings
+	const user = await db
+		.prepare('SELECT google_refresh_token, outlook_refresh_token, settings FROM users WHERE id = ?')
+		.bind(userId)
+		.first<{ google_refresh_token: string | null; outlook_refresh_token: string | null; settings: string | null }>();
+
+	// Check if Microsoft OAuth is configured
+	const outlookConfigured = !!(event.platform?.env?.MICROSOFT_CLIENT_ID && event.platform?.env?.MICROSOFT_CLIENT_SECRET);
+
+	// Parse user settings for global calendar defaults
+	let userSettings: {
+		defaultAvailabilityCalendars?: 'google' | 'outlook' | 'both';
+		defaultInviteCalendar?: 'google' | 'outlook';
+	} = {};
+	try {
+		userSettings = user?.settings ? JSON.parse(user.settings) : {};
+	} catch {
+		userSettings = {};
+	}
+
 	// Get event type
 	const eventType = await db
 		.prepare(
-			`SELECT id, name, slug, duration_minutes as duration, description, is_active, cover_image
+			`SELECT id, name, slug, duration_minutes as duration, description, is_active, cover_image,
+				availability_calendars, invite_calendar
 			FROM event_types
 			WHERE id = ? AND user_id = ?`
 		)
@@ -36,6 +57,8 @@ export const load: PageServerLoad = async (event) => {
 			description: string;
 			is_active: number;
 			cover_image: string | null;
+			availability_calendars: string | null;
+			invite_calendar: string | null;
 		}>();
 
 	if (!eventType) {
@@ -43,7 +66,12 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	return {
-		eventType
+		eventType,
+		googleConnected: !!user?.google_refresh_token,
+		outlookConnected: !!user?.outlook_refresh_token,
+		outlookConfigured,
+		defaultAvailabilityCalendars: userSettings.defaultAvailabilityCalendars,
+		defaultInviteCalendar: userSettings.defaultInviteCalendar
 	};
 };
 
@@ -79,6 +107,10 @@ export const actions: Actions = {
 		const description = formData.get('description') || '';
 		const isActive = formData.get('is_active') === 'on';
 		const coverImage = formData.get('cover_image') || null;
+		const overrideCalendarSettings = formData.get('override_calendar_settings') === 'on';
+		// Only use custom values if override is enabled, otherwise null (use global)
+		const availabilityCalendars = overrideCalendarSettings ? (formData.get('availability_calendars') || 'both') : null;
+		const inviteCalendar = overrideCalendarSettings ? (formData.get('invite_calendar') || 'google') : null;
 
 		if (!name || !slug || !duration) {
 			return fail(400, { error: 'Missing required fields' });
@@ -107,7 +139,8 @@ export const actions: Actions = {
 			await db
 				.prepare(
 					`UPDATE event_types
-					SET name = ?, slug = ?, duration_minutes = ?, description = ?, is_active = ?, cover_image = ?
+					SET name = ?, slug = ?, duration_minutes = ?, description = ?, is_active = ?, cover_image = ?,
+						availability_calendars = ?, invite_calendar = ?
 					WHERE id = ? AND user_id = ?`
 				)
 				.bind(
@@ -117,6 +150,8 @@ export const actions: Actions = {
 					description.toString(),
 					isActive ? 1 : 0,
 					coverImage ? coverImage.toString() : null,
+					availabilityCalendars.toString(),
+					inviteCalendar.toString(),
 					eventTypeId,
 					userId
 				)

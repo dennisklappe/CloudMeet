@@ -13,7 +13,44 @@ export const load: PageServerLoad = async (event) => {
 		throw redirect(302, '/auth/login');
 	}
 
-	return {};
+	const db = event.platform?.env?.DB;
+	if (!db) {
+		return {
+			googleConnected: false,
+			outlookConnected: false,
+			outlookConfigured: false,
+			defaultAvailabilityCalendars: undefined,
+			defaultInviteCalendar: undefined
+		};
+	}
+
+	// Get user info for calendar connection status and settings
+	const user = await db
+		.prepare('SELECT google_refresh_token, outlook_refresh_token, settings FROM users WHERE id = ?')
+		.bind(userId)
+		.first<{ google_refresh_token: string | null; outlook_refresh_token: string | null; settings: string | null }>();
+
+	// Check if Microsoft OAuth is configured
+	const outlookConfigured = !!(event.platform?.env?.MICROSOFT_CLIENT_ID && event.platform?.env?.MICROSOFT_CLIENT_SECRET);
+
+	// Parse user settings for global calendar defaults
+	let userSettings: {
+		defaultAvailabilityCalendars?: 'google' | 'outlook' | 'both';
+		defaultInviteCalendar?: 'google' | 'outlook';
+	} = {};
+	try {
+		userSettings = user?.settings ? JSON.parse(user.settings) : {};
+	} catch {
+		userSettings = {};
+	}
+
+	return {
+		googleConnected: !!user?.google_refresh_token,
+		outlookConnected: !!user?.outlook_refresh_token,
+		outlookConfigured,
+		defaultAvailabilityCalendars: userSettings.defaultAvailabilityCalendars,
+		defaultInviteCalendar: userSettings.defaultInviteCalendar
+	};
 };
 
 export const actions: Actions = {
@@ -36,6 +73,10 @@ export const actions: Actions = {
 		const description = formData.get('description') || '';
 		const isActive = formData.get('is_active') === 'on';
 		const coverImage = formData.get('cover_image') || '';
+		const overrideCalendarSettings = formData.get('override_calendar_settings') === 'on';
+		// Only use custom values if override is enabled, otherwise null (use global)
+		const availabilityCalendars = overrideCalendarSettings ? (formData.get('availability_calendars') || 'both') : null;
+		const inviteCalendar = overrideCalendarSettings ? (formData.get('invite_calendar') || 'google') : null;
 
 		if (!name || !slug || !duration) {
 			return fail(400, { error: 'Missing required fields' });
@@ -61,10 +102,10 @@ export const actions: Actions = {
 			// Insert new event type
 			await db
 				.prepare(
-					`INSERT INTO event_types (user_id, name, slug, duration_minutes, description, is_active, cover_image, created_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+					`INSERT INTO event_types (user_id, name, slug, duration_minutes, description, is_active, cover_image, availability_calendars, invite_calendar, created_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
 				)
-				.bind(userId, name.toString(), slugStr, parseInt(duration.toString()), description.toString(), isActive ? 1 : 0, coverImage.toString())
+				.bind(userId, name.toString(), slugStr, parseInt(duration.toString()), description.toString(), isActive ? 1 : 0, coverImage.toString(), availabilityCalendars.toString(), inviteCalendar.toString())
 				.run();
 
 			throw redirect(302, '/dashboard');

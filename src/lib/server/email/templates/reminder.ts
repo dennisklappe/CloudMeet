@@ -43,8 +43,9 @@ export function generateReminderEmail(data: BookingEmailData, reminderType: Remi
 		</p>
 	` : '';
 
+	const meetingLabel = data.meetingType === 'teams' ? 'Join Microsoft Teams Meeting' : 'Join Google Meet';
 	const actionButton = data.meetingUrl
-		? generateActionButton(data.meetingUrl, 'Join Google Meet', brandColor)
+		? generateActionButton(data.meetingUrl, meetingLabel, brandColor)
 		: '';
 
 	const managementLinks = generateManagementLinks(rescheduleUrl, cancelUrl, brandColor);
