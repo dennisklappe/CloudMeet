@@ -29,6 +29,13 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 	try {
 		const db = env.DB;
 
+		// Check cache first to avoid expensive DB/API calls
+		const cacheKey = `availability:month:${eventSlug}:${month}`;
+		const cached = await env.KV.get(cacheKey);
+		if (cached) {
+			return json(JSON.parse(cached));
+		}
+
 		// Get the first (and only) user for single-user setup
 		const user = await db
 			.prepare('SELECT id, slug, timezone, settings FROM users LIMIT 1')
