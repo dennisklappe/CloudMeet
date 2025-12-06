@@ -3,6 +3,8 @@
  * Provides robust validation for user inputs
  */
 
+import validator from 'validator';
+
 /**
  * Maximum length limits for various fields
  */
@@ -15,7 +17,7 @@ export const MAX_LENGTHS = {
 } as const;
 
 /**
- * Validate email address using a robust regex
+ * Validate email address using validator.js library
  * Rejects invalid formats like: a@b.c, test@domain..com, @domain.com, user@.com
  */
 export function isValidEmail(email: string): boolean {
@@ -28,24 +30,12 @@ export function isValidEmail(email: string): boolean {
 		return false;
 	}
 
-	// Robust email regex that:
-	// - Requires local part with valid characters (no leading/trailing dots, no consecutive dots)
-	// - Requires @ symbol
-	// - Requires domain with at least one dot
-	// - Requires TLD of at least 2 characters
-	// - Disallows consecutive dots anywhere
-	const emailRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
-
-	if (!emailRegex.test(email)) {
-		return false;
-	}
-
-	// Additional check: no consecutive dots anywhere
-	if (email.includes('..')) {
-		return false;
-	}
-
-	return true;
+	// Use validator.js for robust email validation
+	return validator.isEmail(email, {
+		allow_display_name: false,
+		require_tld: true,
+		allow_ip_domain: false
+	});
 }
 
 /**
