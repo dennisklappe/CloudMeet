@@ -6,8 +6,14 @@
 	import { detectTimezone, getTimezoneLabel, getTimezoneWithTime, TIMEZONE_LABELS } from '$lib/constants/timezones';
 	import { formatDateLocal, formatSelectedDate, createFormatters } from '$lib/utils/dateFormatters';
 	import { BookingCalendar, TimeSlotList, BookingForm, BookingSuccess, EventSidebar } from '$lib/components/booking';
+	import DOMPurify from 'isomorphic-dompurify';
 
 	let { data }: { data: PageData } = $props();
+
+	// Sanitize event description to prevent XSS
+	const sanitizedDescription = $derived(
+		data.eventType?.description ? DOMPurify.sanitize(data.eventType.description) : ''
+	);
 
 	// Brand colors
 	const brandColor = data.user?.brandColor || '#3b82f6';
@@ -344,7 +350,7 @@
 				<!-- Description -->
 				{#if data.eventType?.description}
 					<div class="px-6 pb-5 text-sm text-gray-600 prose prose-sm max-w-none">
-						{@html data.eventType.description}
+						{@html sanitizedDescription}
 					</div>
 				{/if}
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { BrandColors } from '$lib/utils/colorUtils';
 	import { formatSelectedDate } from '$lib/utils/dateFormatters';
+	import DOMPurify from 'isomorphic-dompurify';
 
 	interface Props {
 		user: {
@@ -28,6 +29,11 @@
 		brandColor,
 		formatTime
 	}: Props = $props();
+
+	// Sanitize event description to prevent XSS
+	const sanitizedDescription = $derived(
+		eventType?.description ? DOMPurify.sanitize(eventType.description) : ''
+	);
 
 	const meetingLabel = eventType?.invite_calendar === 'outlook' ? 'Microsoft Teams' : 'Google Meet';
 </script>
@@ -71,7 +77,7 @@
 		{#if eventType?.description}
 			<div class="mt-6 pt-6 border-t border-gray-200">
 				<div class="text-sm text-gray-600 prose prose-sm max-w-none [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-1">
-					{@html eventType.description}
+					{@html sanitizedDescription}
 				</div>
 			</div>
 		{/if}
