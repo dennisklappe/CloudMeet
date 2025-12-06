@@ -155,9 +155,9 @@ export async function verifySessionToken(
 
 		const payload = JSON.parse(atob(data));
 
-		// Check if token is expired (24 hours)
+		// Check if token is expired (7 days - matches cookie maxAge)
 		const age = Date.now() - payload.iat;
-		if (age > 24 * 60 * 60 * 1000) {
+		if (age > 7 * 24 * 60 * 60 * 1000) {
 			return null;
 		}
 
