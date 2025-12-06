@@ -110,10 +110,16 @@
 				</div>
 				<div class="flex gap-4">
 					<a
+						href="/dashboard/calendars"
+						class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+					>
+						Calendars
+					</a>
+					<a
 						href="/dashboard/emails"
 						class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
 					>
-						Email Settings
+						Emails
 					</a>
 					<a
 						href="/dashboard/availability"

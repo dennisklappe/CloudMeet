@@ -3,12 +3,14 @@
  * Returns available time slots based on:
  * 1. User's availability rules (weekly schedule)
  * 2. Google Calendar busy times
- * 3. Existing bookings
+ * 3. Outlook Calendar busy times
+ * 4. Existing bookings
  */
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getBusyTimes, getValidAccessToken } from '$lib/server/google-calendar';
+import { getOutlookBusyTimes, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
 
 interface TimeSlot {
 	start: string;
@@ -33,8 +35,8 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
 		// Get the first (and only) user for single-user setup
 		const user = await db
-			.prepare('SELECT id, slug, timezone FROM users LIMIT 1')
-			.first<{ id: string; slug: string; timezone: string | null }>();
+			.prepare('SELECT id, slug, timezone, settings FROM users LIMIT 1')
+			.first<{ id: string; slug: string; timezone: string | null; settings: string | null }>();
 
 		if (!user) {
 			throw error(404, 'User not found');
@@ -42,14 +44,27 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
 		const userTimezone = user.timezone || 'UTC';
 
+		// Parse user settings for global calendar defaults
+		let userSettings: { defaultAvailabilityCalendars?: string } = {};
+		try {
+			userSettings = user.settings ? JSON.parse(user.settings) : {};
+		} catch {
+			userSettings = {};
+		}
+
 		const eventType = await db
-			.prepare('SELECT id, duration_minutes as duration FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1')
+			.prepare('SELECT id, duration_minutes as duration, availability_calendars FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1')
 			.bind(user.id, eventSlug)
-			.first<{ id: string; duration: number }>();
+			.first<{ id: string; duration: number; availability_calendars: string | null }>();
 
 		if (!eventType) {
 			throw error(404, 'Event type not found or inactive');
 		}
+
+		// Get calendar settings: use event type override if set, otherwise use global settings
+		const availabilityCalendars = eventType.availability_calendars || userSettings.defaultAvailabilityCalendars || 'both';
+		const useGoogleCalendar = availabilityCalendars === 'google' || availabilityCalendars === 'both';
+		const useOutlookCalendar = availabilityCalendars === 'outlook' || availabilityCalendars === 'both';
 
 		// Parse date
 		const requestedDate = new Date(date);
@@ -70,24 +85,46 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 			return json({ slots: [] });
 		}
 
-		// Get busy times from Google Calendar
+		// Get busy times from connected calendars
 		const startOfDay = new Date(requestedDate);
 		startOfDay.setHours(0, 0, 0, 0);
 		const endOfDay = new Date(requestedDate);
 		endOfDay.setHours(23, 59, 59, 999);
 
 		let busySlots: TimeSlot[] = [];
-		try {
-			const accessToken = await getValidAccessToken(
-				db,
-				user.id,
-				env.GOOGLE_CLIENT_ID,
-				env.GOOGLE_CLIENT_SECRET
-			);
-			busySlots = await getBusyTimes(accessToken, startOfDay, endOfDay);
-		} catch (err) {
-			console.error('Error fetching Google Calendar busy times:', err);
-			// Continue without Google Calendar data if there's an error
+
+		// Fetch Google Calendar busy times (if enabled in settings)
+		if (useGoogleCalendar) {
+			try {
+				const accessToken = await getValidAccessToken(
+					db,
+					user.id,
+					env.GOOGLE_CLIENT_ID,
+					env.GOOGLE_CLIENT_SECRET
+				);
+				const googleBusy = await getBusyTimes(accessToken, startOfDay, endOfDay);
+				busySlots.push(...googleBusy);
+			} catch (err) {
+				console.error('Error fetching Google Calendar busy times:', err);
+				// Continue without Google Calendar data if there's an error
+			}
+		}
+
+		// Fetch Outlook Calendar busy times (if configured, connected, and enabled in settings)
+		if (useOutlookCalendar && env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) {
+			try {
+				const outlookToken = await getValidOutlookAccessToken(
+					db,
+					user.id,
+					env.MICROSOFT_CLIENT_ID,
+					env.MICROSOFT_CLIENT_SECRET
+				);
+				const outlookBusy = await getOutlookBusyTimes(outlookToken, startOfDay, endOfDay);
+				busySlots.push(...outlookBusy);
+			} catch (err) {
+				// User may not have Outlook connected - that's fine
+				console.error('Error fetching Outlook Calendar busy times:', err);
+			}
 		}
 
 		// Get existing bookings for this date

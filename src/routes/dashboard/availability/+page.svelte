@@ -223,7 +223,7 @@
 		<div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
 			<h3 class="font-semibold text-blue-900 mb-2">Note</h3>
 			<p class="text-sm text-blue-800">
-				Your Google Calendar will also be checked for conflicts. Even if you're available according to these hours,
+				Your connected calendars will also be checked for conflicts. Even if you're available according to these hours,
 				if you have an event on your calendar during a time slot, it won't be shown as available to book.
 			</p>
 		</div>

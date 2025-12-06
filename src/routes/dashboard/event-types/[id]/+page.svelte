@@ -14,6 +14,56 @@
 	let saving = $state(false);
 	let uploadingCover = $state(false);
 
+	// Check which calendars are available
+	const hasGoogle = data.googleConnected;
+	const hasOutlook = data.outlookConnected && data.outlookConfigured;
+
+	// Check if this event type has custom calendar settings (override is enabled)
+	// If availability_calendars or invite_calendar is set, override was enabled
+	const hasCustomSettings = !!(data.eventType.availability_calendars || data.eventType.invite_calendar);
+	let overrideCalendarSettings = $state(hasCustomSettings);
+
+	// Get global defaults
+	function getGlobalAvailability() {
+		if (data.defaultAvailabilityCalendars) return data.defaultAvailabilityCalendars;
+		if (hasGoogle && hasOutlook) return 'both';
+		if (hasOutlook) return 'outlook';
+		return 'google';
+	}
+
+	function getGlobalInviteCalendar() {
+		if (data.defaultInviteCalendar) return data.defaultInviteCalendar;
+		if (hasGoogle) return 'google';
+		if (hasOutlook) return 'outlook';
+		return 'google';
+	}
+
+	// Get values for form (use custom if set, otherwise use global)
+	function getDefaultAvailability() {
+		if (data.eventType.availability_calendars) return data.eventType.availability_calendars;
+		return getGlobalAvailability();
+	}
+
+	function getDefaultInviteCalendar() {
+		if (data.eventType.invite_calendar) return data.eventType.invite_calendar;
+		return getGlobalInviteCalendar();
+	}
+
+	let availabilityCalendars = $state(getDefaultAvailability());
+	let inviteCalendar = $state(getDefaultInviteCalendar());
+
+	// Labels for displaying current global settings
+	function getAvailabilityLabel(val: string) {
+		if (val === 'both') return 'Both calendars';
+		if (val === 'outlook') return 'Outlook Calendar';
+		return 'Google Calendar';
+	}
+
+	function getInviteLabel(val: string) {
+		if (val === 'outlook') return 'Outlook (Microsoft Teams)';
+		return 'Google Calendar (Google Meet)';
+	}
+
 	async function handleCoverUpload(e: Event) {
 		const input = e.target as HTMLInputElement;
 		const file = input.files?.[0];
@@ -214,6 +264,97 @@
 						</label>
 						<input type="hidden" name="cover_image" value={coverImage} />
 					</div>
+
+					<!-- Calendar Settings -->
+					{#if hasGoogle || hasOutlook}
+						<div class="border-t border-gray-200 pt-6">
+							<h3 class="text-sm font-medium text-gray-900 mb-4">Calendar Settings</h3>
+
+							<!-- Show current global settings -->
+							<div class="mb-4 p-3 bg-gray-50 rounded-lg text-sm">
+								<p class="text-gray-600 mb-1">
+									<span class="font-medium">Check availability from:</span> {getAvailabilityLabel(getGlobalAvailability())}
+								</p>
+								<p class="text-gray-600">
+									<span class="font-medium">Send invite via:</span> {getInviteLabel(getGlobalInviteCalendar())}
+								</p>
+								<p class="text-xs text-gray-500 mt-2">
+									These are your global settings. <a href="/dashboard" class="text-blue-600 hover:underline">Change in Dashboard</a>
+								</p>
+							</div>
+
+							<!-- Override checkbox -->
+							<div class="flex items-center mb-4">
+								<input
+									type="checkbox"
+									id="override_calendar_settings"
+									name="override_calendar_settings"
+									bind:checked={overrideCalendarSettings}
+									class="h-4 w-4 text-blue-600 rounded border-gray-300"
+								/>
+								<label for="override_calendar_settings" class="ml-2 text-sm text-gray-700">
+									Override global calendar settings for this event type
+								</label>
+							</div>
+
+							{#if overrideCalendarSettings}
+								<!-- Availability Calendars -->
+								<div class="mb-4">
+									<label for="availability_calendars" class="block text-sm font-medium text-gray-700 mb-2">
+										Check availability from
+									</label>
+									<select
+										id="availability_calendars"
+										name="availability_calendars"
+										bind:value={availabilityCalendars}
+										class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+									>
+										{#if hasGoogle && hasOutlook}
+											<option value="both">Both Google & Outlook calendars</option>
+										{/if}
+										{#if hasGoogle}
+											<option value="google">Google Calendar only</option>
+										{/if}
+										{#if hasOutlook}
+											<option value="outlook">Outlook Calendar only</option>
+										{/if}
+									</select>
+									<p class="text-xs text-gray-500 mt-1">
+										Which calendars to check when showing available time slots
+									</p>
+								</div>
+
+								<!-- Invite Calendar -->
+								<div>
+									<label for="invite_calendar" class="block text-sm font-medium text-gray-700 mb-2">
+										Send calendar invite via
+									</label>
+									<select
+										id="invite_calendar"
+										name="invite_calendar"
+										bind:value={inviteCalendar}
+										class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+									>
+										{#if hasGoogle}
+											<option value="google">Google Calendar (with Google Meet)</option>
+										{/if}
+										{#if hasOutlook}
+											<option value="outlook">Outlook Calendar (with Microsoft Teams)</option>
+										{/if}
+									</select>
+									<p class="text-xs text-gray-500 mt-1">
+										The attendee will receive an invite from this calendar with the meeting link
+									</p>
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<div class="border-t border-gray-200 pt-6">
+							<p class="text-sm text-gray-500">
+								Connect a calendar in <a href="/dashboard" class="text-blue-600 hover:underline">Dashboard Settings</a> to configure calendar options.
+							</p>
+						</div>
+					{/if}
 
 					<!-- Is Active -->
 					<div class="flex items-center">

@@ -30,8 +30,9 @@ export function generateRescheduleEmail(data: RescheduleEmailData): string {
 		? generateYourMessageCard(data.attendeeNotes)
 		: '';
 
+	const meetingLabel = data.meetingType === 'teams' ? 'Join Microsoft Teams Meeting' : 'Join Google Meet';
 	const actionButton = data.meetingUrl
-		? generateActionButton(data.meetingUrl, 'Join Google Meet', brandColor)
+		? generateActionButton(data.meetingUrl, meetingLabel, brandColor)
 		: '';
 
 	const managementLinks = generateManagementLinks(rescheduleUrl, cancelUrl, brandColor)
@@ -96,8 +97,9 @@ export function generateAdminRescheduleEmail(data: RescheduleEmailData): string 
 		? generateAttendeeNotesCard(data.attendeeName, data.attendeeNotes)
 		: '';
 
+	const adminMeetingLabel = data.meetingType === 'teams' ? 'Join Microsoft Teams Meeting' : 'Join Google Meet';
 	const actionButton = data.meetingUrl
-		? generateActionButton(data.meetingUrl, 'Join Google Meet', brandColor)
+		? generateActionButton(data.meetingUrl, adminMeetingLabel, brandColor)
 		: '';
 
 	const bodyContent = `

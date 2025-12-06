@@ -6,6 +6,7 @@
 import { json, error, type RequestEvent } from '@sveltejs/kit';
 import { getCurrentUser } from '$lib/server/auth';
 import { cancelCalendarEvent, getValidAccessToken } from '$lib/server/google-calendar';
+import { cancelOutlookCalendarEvent, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
 import { sendCancellationEmail, getEmailTemplates, isEmailEnabled } from '$lib/server/email';
 
 export const POST = async (event: RequestEvent) => {
@@ -36,7 +37,7 @@ export const POST = async (event: RequestEvent) => {
 		// Get booking and verify ownership
 		const booking = await db
 			.prepare(
-				`SELECT b.id, b.user_id, b.google_event_id, b.status, b.start_time, b.end_time,
+				`SELECT b.id, b.user_id, b.google_event_id, b.outlook_event_id, b.status, b.start_time, b.end_time,
 				b.attendee_name, b.attendee_email,
 				e.name as event_name, e.slug as event_slug, e.description as event_description,
 				u.name as host_name, u.email as host_email, u.contact_email, u.settings, u.brand_color
@@ -50,6 +51,7 @@ export const POST = async (event: RequestEvent) => {
 				id: string;
 				user_id: string;
 				google_event_id: string | null;
+				outlook_event_id: string | null;
 				status: string;
 				start_time: string;
 				end_time: string;
@@ -90,6 +92,22 @@ export const POST = async (event: RequestEvent) => {
 			} catch (err) {
 				console.error('Failed to cancel Google Calendar event:', err);
 				// Continue with database cancellation even if Google Calendar fails
+			}
+		}
+
+		// Cancel in Outlook Calendar if event exists
+		if (booking.outlook_event_id && env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) {
+			try {
+				const outlookToken = await getValidOutlookAccessToken(
+					db,
+					booking.user_id,
+					env.MICROSOFT_CLIENT_ID,
+					env.MICROSOFT_CLIENT_SECRET
+				);
+				await cancelOutlookCalendarEvent(outlookToken, booking.outlook_event_id);
+			} catch (err) {
+				console.error('Failed to cancel Outlook Calendar event:', err);
+				// Continue with database cancellation even if Outlook Calendar fails
 			}
 		}
 

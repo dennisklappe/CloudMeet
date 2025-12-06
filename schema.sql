@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     google_refresh_token TEXT,
+    outlook_refresh_token TEXT,
     timezone TEXT DEFAULT 'UTC',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     sync_token TEXT,
@@ -32,6 +33,8 @@ CREATE TABLE IF NOT EXISTS event_types (
     location_details TEXT,
     is_active BOOLEAN DEFAULT 1,
     cover_image TEXT,
+    availability_calendars TEXT DEFAULT 'both', -- 'google', 'outlook', 'both'
+    invite_calendar TEXT DEFAULT 'google', -- 'google' or 'outlook'
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE(user_id, slug)
@@ -83,6 +86,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     attendee_email TEXT NOT NULL,
     attendee_notes TEXT,
     google_event_id TEXT,
+    outlook_event_id TEXT,
     meeting_url TEXT,
     status TEXT DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'canceled', 'rescheduled')),
     canceled_at DATETIME,

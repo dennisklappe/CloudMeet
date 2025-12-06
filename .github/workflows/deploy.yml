@@ -118,6 +118,8 @@ jobs:
           EMAILIT_API_KEY: ${{ secrets.EMAILIT_API_KEY }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
         run: |
           # Add env vars to wrangler.toml before deploy
           cat >> wrangler.toml << EOF
@@ -131,6 +133,8 @@ jobs:
           EMAILIT_API_KEY = "$EMAILIT_API_KEY"
           EMAIL_FROM = "$EMAIL_FROM"
           CRON_SECRET = "$CRON_SECRET"
+          MICROSOFT_CLIENT_ID = "$MICROSOFT_CLIENT_ID"
+          MICROSOFT_CLIENT_SECRET = "$MICROSOFT_CLIENT_SECRET"
           EOF
 
           echo "Final wrangler.toml:"

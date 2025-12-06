@@ -32,12 +32,15 @@ export function generateBookingEmail(data: BookingEmailData): string {
 		<h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700;">Meeting Confirmed!</h1>
 	`;
 
+	const meetingLabel = data.meetingType === 'teams' ? 'Join Microsoft Teams Meeting' : 'Join Google Meet';
+
 	const meetingDetails = generateMeetingDetailsCard({
 		eventName: data.eventName,
 		eventDescription: data.eventDescription,
 		formattedDate: formatDate(data.startTime),
 		formattedTime: `${formatTime(data.startTime)} - ${formatTime(data.endTime)}`,
 		meetingUrl: data.meetingUrl,
+		meetingType: data.meetingType,
 		brandColor
 	});
 
@@ -46,7 +49,7 @@ export function generateBookingEmail(data: BookingEmailData): string {
 		: '';
 
 	const actionButton = data.meetingUrl
-		? generateActionButton(data.meetingUrl, 'Join Google Meet', brandColor)
+		? generateActionButton(data.meetingUrl, meetingLabel, brandColor)
 		: '';
 
 	const managementLinks = generateManagementLinks(rescheduleUrl, cancelUrl, brandColor);
@@ -102,7 +105,7 @@ ${data.eventDescription ? `Description: ${data.eventDescription}` : ''}
 Time: ${formatDateTime(data.startTime)} - ${formatDateTime(data.endTime)}
 ${data.meetingUrl ? `Location: ${data.meetingUrl}` : ''}
 
-${data.meetingUrl ? `Join Google Meet: ${data.meetingUrl}` : ''}
+${data.meetingUrl ? `Join Meeting: ${data.meetingUrl}` : ''}
 
 MANAGE YOUR BOOKING
 Reschedule: ${rescheduleUrl}

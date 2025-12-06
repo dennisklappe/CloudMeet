@@ -22,14 +22,48 @@ export const PUT: RequestHandler = async (event) => {
 
 	try {
 		const body = await event.request.json() as {
-			name: string;
+			name?: string;
 			profileImage?: string | null;
 			brandColor?: string | null;
 			contactEmail?: string | null;
 			timeFormat?: '12h' | '24h';
+			// Global calendar settings
+			defaultAvailabilityCalendars?: 'google' | 'outlook' | 'both';
+			defaultInviteCalendar?: 'google' | 'outlook';
 		};
-		const { name, profileImage, brandColor, contactEmail, timeFormat } = body;
+		const { name, profileImage, brandColor, contactEmail, timeFormat, defaultAvailabilityCalendars, defaultInviteCalendar } = body;
 
+		// Get existing settings
+		const existingUser = await db
+			.prepare('SELECT settings FROM users WHERE id = ?')
+			.bind(userId)
+			.first<{ settings: string | null }>();
+
+		let existingSettings: Record<string, unknown> = {};
+		try {
+			existingSettings = existingUser?.settings ? JSON.parse(existingUser.settings) : {};
+		} catch {
+			existingSettings = {};
+		}
+
+		// If this is a calendar settings update (no name provided)
+		if (name === undefined && (defaultAvailabilityCalendars !== undefined || defaultInviteCalendar !== undefined)) {
+			// Update only calendar settings
+			const newSettings = {
+				...existingSettings,
+				defaultAvailabilityCalendars: defaultAvailabilityCalendars ?? existingSettings.defaultAvailabilityCalendars ?? 'both',
+				defaultInviteCalendar: defaultInviteCalendar ?? existingSettings.defaultInviteCalendar ?? 'google'
+			};
+
+			await db
+				.prepare('UPDATE users SET settings = ? WHERE id = ?')
+				.bind(JSON.stringify(newSettings), userId)
+				.run();
+
+			return json({ success: true });
+		}
+
+		// Profile update with name
 		if (!name || name.trim().length === 0) {
 			throw error(400, 'Name is required');
 		}
@@ -42,8 +76,9 @@ export const PUT: RequestHandler = async (event) => {
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 		const validContactEmail = contactEmail && emailRegex.test(contactEmail) ? contactEmail.trim() : null;
 
-		// Build settings JSON
+		// Build settings JSON preserving calendar settings
 		const settings = JSON.stringify({
+			...existingSettings,
 			timeFormat: timeFormat === '24h' ? '24h' : '12h'
 		});
 
