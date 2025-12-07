@@ -8,6 +8,7 @@ import type { RequestHandler } from './$types';
 import { createCalendarEvent, getValidAccessToken } from '$lib/server/google-calendar';
 import { createOutlookCalendarEvent, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
 import { sendBookingEmail, sendAdminNotificationEmail, getEmailTemplates, isEmailEnabled, type EmailTemplateType } from '$lib/server/email';
+import { isValidEmail, validateLength, validateFields, MAX_LENGTHS } from '$lib/server/validation';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const env = platform?.env;
@@ -33,9 +34,18 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			throw error(400, 'Missing required fields');
 		}
 
+		// Validate input lengths
+		const lengthError = validateFields([
+			validateLength(attendeeName, 'Name', MAX_LENGTHS.name, true),
+			validateLength(attendeeEmail, 'Email', MAX_LENGTHS.email, true),
+			validateLength(notes, 'Notes', MAX_LENGTHS.notes, false)
+		]);
+		if (lengthError) {
+			throw error(400, lengthError);
+		}
+
 		// Validate email format
-		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-		if (!emailRegex.test(attendeeEmail)) {
+		if (!isValidEmail(attendeeEmail)) {
 			throw error(400, 'Invalid email address');
 		}
 

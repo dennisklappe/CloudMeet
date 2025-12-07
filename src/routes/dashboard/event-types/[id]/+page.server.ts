@@ -5,6 +5,7 @@
 import { redirect, fail, error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { getCurrentUser } from '$lib/server/auth';
+import { validateLength, validateFields, MAX_LENGTHS } from '$lib/server/validation';
 
 export const load: PageServerLoad = async (event) => {
 	const userId = await getCurrentUser(event);
@@ -114,6 +115,16 @@ export const actions: Actions = {
 
 		if (!name || !slug || !duration) {
 			return fail(400, { error: 'Missing required fields' });
+		}
+
+		// Validate input lengths
+		const lengthError = validateFields([
+			validateLength(name.toString(), 'Name', MAX_LENGTHS.name, true),
+			validateLength(slug.toString(), 'Slug', MAX_LENGTHS.slug, true),
+			validateLength(description.toString(), 'Description', MAX_LENGTHS.description, false)
+		]);
+		if (lengthError) {
+			return fail(400, { error: lengthError });
 		}
 
 		// Validate slug is URL-safe

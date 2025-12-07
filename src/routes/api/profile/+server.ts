@@ -6,6 +6,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getCurrentUser } from '$lib/server/auth';
+import { isValidEmail, validateLength, MAX_LENGTHS } from '$lib/server/validation';
 
 export const PUT: RequestHandler = async (event) => {
 	const userId = await getCurrentUser(event);
@@ -68,13 +69,24 @@ export const PUT: RequestHandler = async (event) => {
 			throw error(400, 'Name is required');
 		}
 
+		// Validate input lengths
+		const nameLengthError = validateLength(name, 'Name', MAX_LENGTHS.name, true);
+		if (nameLengthError) {
+			throw error(400, nameLengthError);
+		}
+
 		// Validate brand color if provided
 		const colorRegex = /^#[0-9A-Fa-f]{6}$/;
 		const validBrandColor = brandColor && colorRegex.test(brandColor) ? brandColor : '#3b82f6';
 
-		// Validate contact email if provided
-		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-		const validContactEmail = contactEmail && emailRegex.test(contactEmail) ? contactEmail.trim() : null;
+		// Validate contact email if provided (use robust email validation)
+		let validContactEmail: string | null = null;
+		if (contactEmail) {
+			if (!isValidEmail(contactEmail)) {
+				throw error(400, 'Invalid contact email address');
+			}
+			validContactEmail = contactEmail.trim();
+		}
 
 		// Build settings JSON preserving calendar settings
 		const settings = JSON.stringify({
