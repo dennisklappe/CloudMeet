@@ -34,6 +34,7 @@ export const load: PageServerLoad = async (event) => {
 	let userSettings: {
 		defaultAvailabilityCalendars?: 'google' | 'outlook' | 'both';
 		defaultInviteCalendar?: 'google' | 'outlook';
+		selectedGoogleCalendars?: string[];
 	} = {};
 	try {
 		userSettings = user?.settings ? JSON.parse(user.settings) : {};
@@ -46,7 +47,8 @@ export const load: PageServerLoad = async (event) => {
 			googleConnected: !!user.google_refresh_token,
 			outlookConnected: !!user.outlook_refresh_token,
 			defaultAvailabilityCalendars: userSettings.defaultAvailabilityCalendars,
-			defaultInviteCalendar: userSettings.defaultInviteCalendar
+			defaultInviteCalendar: userSettings.defaultInviteCalendar,
+			selectedGoogleCalendars: userSettings.selectedGoogleCalendars
 		} : null,
 		outlookConfigured
 	};

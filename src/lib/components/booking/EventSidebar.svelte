@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import type { BrandColors } from '$lib/utils/colorUtils';
 	import { formatSelectedDate } from '$lib/utils/dateFormatters';
-	import DOMPurify from 'isomorphic-dompurify';
 
 	interface Props {
 		user: {
@@ -30,10 +30,25 @@
 		formatTime
 	}: Props = $props();
 
-	// Sanitize event description to prevent XSS
-	const sanitizedDescription = $derived(
-		eventType?.description ? DOMPurify.sanitize(eventType.description) : ''
-	);
+	// Sanitize event description to prevent XSS (only in browser, SSR uses raw since admin-entered)
+	let sanitizedDescription = $state('');
+	$effect(() => {
+		if (eventType?.description) {
+			if (browser) {
+				import('isomorphic-dompurify').then(({ default: DOMPurify }) => {
+					sanitizedDescription = DOMPurify.sanitize(eventType.description!);
+				});
+			} else {
+				// During SSR, escape basic HTML entities as a fallback
+				sanitizedDescription = eventType.description
+					.replace(/&/g, '&amp;')
+					.replace(/</g, '&lt;')
+					.replace(/>/g, '&gt;');
+			}
+		} else {
+			sanitizedDescription = '';
+		}
+	});
 
 	const meetingLabel = eventType?.invite_calendar === 'outlook' ? 'Microsoft Teams' : 'Google Meet';
 </script>

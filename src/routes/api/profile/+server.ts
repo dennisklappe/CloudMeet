@@ -31,8 +31,10 @@ export const PUT: RequestHandler = async (event) => {
 			// Global calendar settings
 			defaultAvailabilityCalendars?: 'google' | 'outlook' | 'both';
 			defaultInviteCalendar?: 'google' | 'outlook';
+			// Selected calendars for availability checking
+			selectedGoogleCalendars?: string[];
 		};
-		const { name, profileImage, brandColor, contactEmail, timeFormat, defaultAvailabilityCalendars, defaultInviteCalendar } = body;
+		const { name, profileImage, brandColor, contactEmail, timeFormat, defaultAvailabilityCalendars, defaultInviteCalendar, selectedGoogleCalendars } = body;
 
 		// Get existing settings
 		const existingUser = await db
@@ -48,12 +50,13 @@ export const PUT: RequestHandler = async (event) => {
 		}
 
 		// If this is a calendar settings update (no name provided)
-		if (name === undefined && (defaultAvailabilityCalendars !== undefined || defaultInviteCalendar !== undefined)) {
+		if (name === undefined && (defaultAvailabilityCalendars !== undefined || defaultInviteCalendar !== undefined || selectedGoogleCalendars !== undefined)) {
 			// Update only calendar settings
 			const newSettings = {
 				...existingSettings,
 				defaultAvailabilityCalendars: defaultAvailabilityCalendars ?? existingSettings.defaultAvailabilityCalendars ?? 'both',
-				defaultInviteCalendar: defaultInviteCalendar ?? existingSettings.defaultInviteCalendar ?? 'google'
+				defaultInviteCalendar: defaultInviteCalendar ?? existingSettings.defaultInviteCalendar ?? 'google',
+				...(selectedGoogleCalendars !== undefined && { selectedGoogleCalendars })
 			};
 
 			await db
