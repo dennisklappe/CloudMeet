@@ -251,7 +251,6 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		}
 
 		// Cache response in KV for 5 minutes
-		const cacheKey = `availability:${eventSlug}:${date}`;
 		await env.KV.put(cacheKey, JSON.stringify({ slots }), { expirationTtl: 300 });
 
 		return json({ slots });
