@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import type { PageData } from './$types';
 	import TimezoneSelector from '$lib/components/TimezoneSelector.svelte';
 	import Footer from '$lib/components/Footer.svelte';
@@ -6,14 +7,28 @@
 	import { detectTimezone, getTimezoneLabel, getTimezoneWithTime, TIMEZONE_LABELS } from '$lib/constants/timezones';
 	import { formatDateLocal, formatSelectedDate, createFormatters } from '$lib/utils/dateFormatters';
 	import { BookingCalendar, TimeSlotList, BookingForm, BookingSuccess, EventSidebar } from '$lib/components/booking';
-	import DOMPurify from 'isomorphic-dompurify';
 
 	let { data }: { data: PageData } = $props();
 
-	// Sanitize event description to prevent XSS
-	const sanitizedDescription = $derived(
-		data.eventType?.description ? DOMPurify.sanitize(data.eventType.description) : ''
-	);
+	// Sanitize event description to prevent XSS (only in browser, SSR uses escaped version)
+	let sanitizedDescription = $state('');
+	$effect(() => {
+		if (data.eventType?.description) {
+			if (browser) {
+				import('isomorphic-dompurify').then(({ default: DOMPurify }) => {
+					sanitizedDescription = DOMPurify.sanitize(data.eventType!.description!);
+				});
+			} else {
+				// During SSR, escape basic HTML entities as a fallback
+				sanitizedDescription = data.eventType.description
+					.replace(/&/g, '&amp;')
+					.replace(/</g, '&lt;')
+					.replace(/>/g, '&gt;');
+			}
+		} else {
+			sanitizedDescription = '';
+		}
+	});
 
 	// Brand colors
 	const brandColor = data.user?.brandColor || '#3b82f6';
