@@ -1,10 +1,19 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+
+	interface GoogleCalendar {
+		id: string;
+		summary: string;
+		primary?: boolean;
+	}
+
 	interface Props {
 		user: {
 			googleConnected?: boolean;
 			outlookConnected?: boolean;
 			defaultAvailabilityCalendars?: 'google' | 'outlook' | 'both';
 			defaultInviteCalendar?: 'google' | 'outlook';
+			selectedGoogleCalendars?: string[];
 		} | null;
 		outlookConfigured: boolean;
 	}
@@ -13,6 +22,9 @@
 
 	let error = $state('');
 	let saving = $state(false);
+	let loadingCalendars = $state(false);
+	let googleCalendars = $state<GoogleCalendar[]>([]);
+	let selectedCalendarIds = $state<Set<string>>(new Set(user?.selectedGoogleCalendars || []));
 
 	// Calendar settings with smart defaults
 	const hasGoogle = user?.googleConnected ?? false;
@@ -35,6 +47,42 @@
 	let availabilityCalendars = $state(getDefaultAvailability());
 	let inviteCalendar = $state(getDefaultInvite());
 
+	// Load Google calendars on mount
+	onMount(async () => {
+		if (hasGoogle) {
+			await loadGoogleCalendars();
+		}
+	});
+
+	async function loadGoogleCalendars() {
+		loadingCalendars = true;
+		try {
+			const response = await fetch('/api/calendars/google');
+			if (response.ok) {
+				const data = await response.json();
+				googleCalendars = data.calendars;
+				// If no calendars selected yet, select all by default
+				if (selectedCalendarIds.size === 0 && googleCalendars.length > 0) {
+					selectedCalendarIds = new Set(googleCalendars.map(c => c.id));
+				}
+			}
+		} catch (err) {
+			console.error('Failed to load Google calendars:', err);
+		} finally {
+			loadingCalendars = false;
+		}
+	}
+
+	function toggleCalendar(calendarId: string) {
+		const newSet = new Set(selectedCalendarIds);
+		if (newSet.has(calendarId)) {
+			newSet.delete(calendarId);
+		} else {
+			newSet.add(calendarId);
+		}
+		selectedCalendarIds = newSet;
+	}
+
 	async function saveCalendarSettings() {
 		saving = true;
 		error = '';
@@ -44,7 +92,8 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					defaultAvailabilityCalendars: availabilityCalendars,
-					defaultInviteCalendar: inviteCalendar
+					defaultInviteCalendar: inviteCalendar,
+					selectedGoogleCalendars: Array.from(selectedCalendarIds)
 				})
 			});
 			if (!response.ok) throw new Error('Failed to save');
@@ -190,6 +239,42 @@
 						{/if}
 					</select>
 				</div>
+
+				<!-- Google Calendar Selection -->
+				{#if hasGoogle && (availabilityCalendars === 'google' || availabilityCalendars === 'both')}
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-2">
+							Google calendars to check
+						</label>
+						{#if loadingCalendars}
+							<p class="text-sm text-gray-500">Loading calendars...</p>
+						{:else if googleCalendars.length === 0}
+							<p class="text-sm text-gray-500">No calendars found</p>
+						{:else}
+							<div class="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3">
+								{#each googleCalendars as calendar}
+									<label class="flex items-center gap-2 cursor-pointer">
+										<input
+											type="checkbox"
+											checked={selectedCalendarIds.has(calendar.id)}
+											onchange={() => toggleCalendar(calendar.id)}
+											class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+										/>
+										<span class="text-sm text-gray-700">
+											{calendar.summary}
+											{#if calendar.primary}
+												<span class="text-xs text-gray-500">(Primary)</span>
+											{/if}
+										</span>
+									</label>
+								{/each}
+							</div>
+							<p class="text-xs text-gray-500 mt-1">
+								Selected: {selectedCalendarIds.size} of {googleCalendars.length}
+							</p>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Send calendar invite via -->
 				<div>

@@ -48,7 +48,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		const userTimezone = user.timezone || 'UTC';
 
 		// Parse user settings for global calendar defaults
-		let userSettings: { defaultAvailabilityCalendars?: string } = {};
+		let userSettings: { defaultAvailabilityCalendars?: string; selectedGoogleCalendars?: string[] } = {};
 		try {
 			userSettings = user.settings ? JSON.parse(user.settings) : {};
 		} catch {
@@ -142,7 +142,9 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 					env.GOOGLE_CLIENT_ID,
 					env.GOOGLE_CLIENT_SECRET
 				);
-				const googleBusy = await getBusyTimes(accessToken, firstDay, lastDay);
+				// Use selected calendars if configured, otherwise query all
+				const selectedCalendars = userSettings.selectedGoogleCalendars;
+				const googleBusy = await getBusyTimes(accessToken, firstDay, lastDay, selectedCalendars);
 				busySlots.push(...googleBusy);
 			} catch (err) {
 				console.error('Error fetching Google Calendar busy times:', err);
