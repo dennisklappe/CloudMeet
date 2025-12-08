@@ -116,7 +116,7 @@ export const actions: Actions = {
 					`INSERT INTO event_types (user_id, name, slug, duration_minutes, description, is_active, cover_image, availability_calendars, invite_calendar, created_at)
 					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
 				)
-				.bind(userId, name.toString(), slugStr, parseInt(duration.toString()), description.toString(), isActive ? 1 : 0, coverImage.toString(), availabilityCalendars.toString(), inviteCalendar.toString())
+				.bind(userId, name, slugStr, parseInt(duration.toString()), description, isActive ? 1 : 0, coverImage, availabilityCalendars, inviteCalendar)
 				.run();
 
 			throw redirect(302, '/dashboard');
