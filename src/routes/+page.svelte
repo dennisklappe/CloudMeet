@@ -97,7 +97,7 @@
 				Meeting Scheduler
 			</h1>
 			<p class="text-xl text-gray-600 mb-8">
-				Simple, self-hosted meeting scheduling powered by Cloudflare
+				Free, open-source meeting scheduling on Cloudflare
 			</p>
 			<div class="flex justify-center gap-4">
 				<a

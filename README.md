@@ -1,6 +1,6 @@
 # CloudMeet
 
-A simple, self-hosted meeting scheduler built on Cloudflare. Open-source Calendly alternative with Google Calendar and Outlook Calendar integration.
+A free, open-source meeting scheduler that runs on Cloudflare. Open-source Calendly alternative with Google Calendar and Outlook Calendar integration.
 
 ![CloudMeet Booking Page](static/screenshot.png)
 
