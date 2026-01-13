@@ -63,7 +63,7 @@ export async function sendBookingEmail(
 		: `Meeting Confirmed: ${data.eventName} with ${data.hostName}`;
 
 	try {
-		const response = await fetch('https://api.emailit.com/v1/emails', {
+		const response = await fetch('https://api.emailit.com/v2/emails', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -103,7 +103,7 @@ export async function sendCancellationEmail(
 		: `Meeting Cancelled: ${data.eventName}`;
 
 	try {
-		const response = await fetch('https://api.emailit.com/v1/emails', {
+		const response = await fetch('https://api.emailit.com/v2/emails', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -142,7 +142,7 @@ export async function sendRescheduleEmail(
 		: `Meeting Rescheduled: ${data.eventName} with ${data.hostName}`;
 
 	try {
-		const response = await fetch('https://api.emailit.com/v1/emails', {
+		const response = await fetch('https://api.emailit.com/v2/emails', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -182,7 +182,7 @@ export async function sendReminderEmail(
 		: getDefaultReminderSubject(data, reminderType);
 
 	try {
-		const response = await fetch('https://api.emailit.com/v1/emails', {
+		const response = await fetch('https://api.emailit.com/v2/emails', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -218,7 +218,7 @@ export async function sendAdminNotificationEmail(
 	const htmlBody = generateAdminNotificationEmail(data);
 
 	try {
-		const response = await fetch('https://api.emailit.com/v1/emails', {
+		const response = await fetch('https://api.emailit.com/v2/emails', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -253,7 +253,7 @@ export async function sendAdminCancellationNotification(
 	const htmlBody = generateAdminCancellationEmail(data);
 
 	try {
-		const response = await fetch('https://api.emailit.com/v1/emails', {
+		const response = await fetch('https://api.emailit.com/v2/emails', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
@@ -288,7 +288,7 @@ export async function sendAdminRescheduleNotification(
 	const htmlBody = generateAdminRescheduleEmail(data);
 
 	try {
-		const response = await fetch('https://api.emailit.com/v1/emails', {
+		const response = await fetch('https://api.emailit.com/v2/emails', {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
