@@ -37,7 +37,7 @@
     "svelte": "^5.39.6",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "wrangler": "^4.40.2"
+    "wrangler": "^4.60.0"
   },
   "dependencies": {
     "@tailwindcss/forms": "^0.5.10",
