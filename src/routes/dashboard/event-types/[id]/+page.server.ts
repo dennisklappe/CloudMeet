@@ -161,8 +161,8 @@ export const actions: Actions = {
 					description.toString(),
 					isActive ? 1 : 0,
 					coverImage ? coverImage.toString() : null,
-					availabilityCalendars.toString(),
-					inviteCalendar.toString(),
+					availabilityCalendars ? availabilityCalendars.toString() : null,
+					inviteCalendar ? inviteCalendar.toString() : null,
 					eventTypeId,
 					userId
 				)
