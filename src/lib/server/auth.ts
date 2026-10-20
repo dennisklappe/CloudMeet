@@ -4,6 +4,7 @@
  */
 
 import type { RequestEvent } from '@sveltejs/kit';
+import { isAccessConfigured, verifyAccessJwt, getOrCreateAccessUser } from './access';
 
 export interface GoogleTokenResponse {
 	access_token: string;
@@ -120,7 +121,7 @@ export async function getGoogleUserInfo(accessToken: string): Promise<GoogleUser
 }
 
 /**
- * Create session token (simple JWT-like token)
+ * Create session token (payload plus HMAC-SHA256 signature)
  */
 export async function createSessionToken(
 	userId: string,
@@ -131,9 +132,8 @@ export async function createSessionToken(
 		iat: Date.now()
 	};
 
-	// Simple base64 encoding with signature
 	const data = btoa(JSON.stringify(payload));
-	const signature = await hashString(`${data}.${secret}`);
+	const signature = await sign(data, secret);
 
 	return `${data}.${signature}`;
 }
@@ -147,9 +147,12 @@ export async function verifySessionToken(
 ): Promise<{ userId: string } | null> {
 	try {
 		const [data, signature] = token.split('.');
-		const expectedSignature = await hashString(`${data}.${secret}`);
+		if (!data || !signature) {
+			return null;
+		}
 
-		if (signature !== expectedSignature) {
+		const expectedSignature = await sign(data, secret);
+		if (!timingSafeEqual(signature, expectedSignature)) {
 			return null;
 		}
 
@@ -168,34 +171,59 @@ export async function verifySessionToken(
 }
 
 /**
- * Hash string using Web Crypto API
+ * Sign a string with HMAC-SHA256 using the Web Crypto API
  */
-async function hashString(str: string): Promise<string> {
+async function sign(data: string, secret: string): Promise<string> {
 	const encoder = new TextEncoder();
-	const data = encoder.encode(str);
-	const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-	const hashArray = Array.from(new Uint8Array(hashBuffer));
-	return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+	const key = await crypto.subtle.importKey(
+		'raw',
+		encoder.encode(secret),
+		{ name: 'HMAC', hash: 'SHA-256' },
+		false,
+		['sign']
+	);
+	const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+	return Array.from(new Uint8Array(signature))
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join('');
 }
 
 /**
- * Get current user from session cookie
+ * Compare two strings without leaking where they differ
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+	if (a.length !== b.length) return false;
+	let diff = 0;
+	for (let i = 0; i < a.length; i++) {
+		diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+	}
+	return diff === 0;
+}
+
+/**
+ * Get current user from the session cookie, or from Cloudflare Access
+ * when CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD are configured
  */
 export async function getCurrentUser(
 	event: RequestEvent
 ): Promise<string | null> {
+	const env = event.platform?.env;
+
 	const sessionToken = event.cookies.get('session');
-	if (!sessionToken) {
-		return null;
+	if (sessionToken && env?.JWT_SECRET) {
+		const session = await verifySessionToken(sessionToken, env.JWT_SECRET);
+		if (session) return session.userId;
 	}
 
-	const jwtSecret = event.platform?.env?.JWT_SECRET;
-	if (!jwtSecret) {
-		return null;
+	if (env && isAccessConfigured(env)) {
+		const accessToken = event.request.headers.get('Cf-Access-Jwt-Assertion');
+		if (accessToken) {
+			const identity = await verifyAccessJwt(accessToken, env);
+			if (identity) return getOrCreateAccessUser(env.DB, identity);
+		}
 	}
 
-	const session = await verifySessionToken(sessionToken, jwtSecret);
-	return session?.userId ?? null;
+	return null;
 }
 
 /**

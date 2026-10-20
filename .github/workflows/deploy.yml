@@ -148,6 +148,8 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
           MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ secrets.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ secrets.CF_ACCESS_AUD }}
         run: |
           # Add env vars to wrangler.toml before deploy
           cat >> wrangler.toml << EOF
@@ -163,6 +165,8 @@ jobs:
           CRON_SECRET = "$CRON_SECRET"
           MICROSOFT_CLIENT_ID = "$MICROSOFT_CLIENT_ID"
           MICROSOFT_CLIENT_SECRET = "$MICROSOFT_CLIENT_SECRET"
+          CF_ACCESS_TEAM_DOMAIN = "$CF_ACCESS_TEAM_DOMAIN"
+          CF_ACCESS_AUD = "$CF_ACCESS_AUD"
           EOF
 
           echo "Final wrangler.toml:"

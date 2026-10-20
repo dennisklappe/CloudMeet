@@ -4,12 +4,19 @@
 
 import { redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getAuthUrl } from '$lib/server/auth';
+import { getAuthUrl, getCurrentUser } from '$lib/server/auth';
+import { isAccessConfigured } from '$lib/server/access';
 
-export const GET: RequestHandler = async ({ platform, url }) => {
+export const GET: RequestHandler = async (event) => {
+	const { platform, url } = event;
 	const env = platform?.env;
 	if (!env) {
 		throw new Error('Platform env not available');
+	}
+
+	// Behind Cloudflare Access the identity is already verified: skip the Google round trip
+	if (isAccessConfigured(env) && (await getCurrentUser(event))) {
+		throw redirect(302, '/dashboard');
 	}
 
 	const clientId = env.GOOGLE_CLIENT_ID;
