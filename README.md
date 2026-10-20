@@ -152,6 +152,7 @@ Instead of (or next to) the Google login you can protect the dashboard with Clou
 5. Add `CF_ACCESS_AUD` and `CF_ACCESS_TEAM_DOMAIN` to your GitHub secrets and re-deploy
 
 Without both secrets Cloudflare Access is ignored and only the Google login works. You still need to connect Google or Outlook once from the dashboard to sync calendars.
+
 ## Per-Event Settings
 
 Each event type can override your global settings. Open **Dashboard** > an event type > **Booking Rules**:
