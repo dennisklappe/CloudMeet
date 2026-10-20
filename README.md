@@ -67,6 +67,8 @@ Add these secrets (click "New repository secret" for each one):
 | `CRON_SECRET` | No | Secures reminder endpoint ([generate one](https://generate-secret.vercel.app/32)) |
 | `MICROSOFT_CLIENT_ID` | No | For Outlook Calendar integration (see below) |
 | `MICROSOFT_CLIENT_SECRET` | No | For Outlook Calendar integration (see below) |
+| `CF_ACCESS_TEAM_DOMAIN` | No | Cloudflare Zero Trust login (see below), e.g. `yourteam.cloudflareaccess.com` |
+| `CF_ACCESS_AUD` | No | Application Audience (AUD) tag of your Access application |
 
 ### 5. Deploy
 
@@ -138,6 +140,18 @@ Once configured, users can connect their Outlook calendar from the dashboard:
 - Click **Connect** next to Outlook Calendar
 - Choose which calendars to use for availability checking
 - Select preferred meeting provider (Google Meet, Teams, or none)
+
+## Cloudflare Zero Trust Login (Optional)
+
+Instead of (or next to) the Google login you can protect the dashboard with Cloudflare Access. Visitors that Access lets through are logged in without a Google round trip, as long as their email matches `ADMIN_EMAIL`.
+
+1. Go to [Zero Trust](https://one.dash.cloudflare.com/) > **Access** > **Applications** > **Add an application** > **Self-hosted**
+2. Add paths for `YOUR-DOMAIN/dashboard` and `YOUR-DOMAIN/auth/login` (leave the booking pages and `/api/*` public)
+3. Add a policy that allows your email
+4. Copy the **Application Audience (AUD) tag** from the application settings and your team domain (`yourteam.cloudflareaccess.com`)
+5. Add `CF_ACCESS_AUD` and `CF_ACCESS_TEAM_DOMAIN` to your GitHub secrets and re-deploy
+
+Without both secrets Cloudflare Access is ignored and only the Google login works. You still need to connect Google or Outlook once from the dashboard to sync calendars.
 
 ## Local Development
 

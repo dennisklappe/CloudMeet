@@ -13,6 +13,8 @@ declare global {
 				BASE_URL: string;
 				APP_URL?: string;
 				ADMIN_EMAIL?: string;
+				CF_ACCESS_TEAM_DOMAIN?: string;
+				CF_ACCESS_AUD?: string;
 				EMAILIT_API_KEY?: string;
 				EMAIL_FROM?: string;
 				TURNSTILE_SECRET_KEY?: string;
