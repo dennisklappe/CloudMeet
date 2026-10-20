@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import SimpleWysiwyg from '$lib/components/SimpleWysiwyg.svelte';
+	import EventOverrides from '$lib/components/dashboard/EventOverrides.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -342,6 +343,8 @@
 							</p>
 						</div>
 					{/if}
+
+					<EventOverrides />
 
 					<!-- Is Active -->
 					<div class="flex items-center">

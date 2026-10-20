@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import SimpleWysiwyg from '$lib/components/SimpleWysiwyg.svelte';
+	import EventOverrides from '$lib/components/dashboard/EventOverrides.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -355,6 +356,13 @@
 							</p>
 						</div>
 					{/if}
+
+					<EventOverrides
+						bufferMinutes={data.eventType.buffer_minutes ?? 0}
+						minNoticeMinutes={data.eventType.min_notice_minutes}
+						maxAdvanceDays={data.eventType.max_advance_days}
+						rules={data.customHours}
+					/>
 
 					<!-- Is Active -->
 					<div class="flex items-center">

@@ -5,6 +5,7 @@
 import { redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { getCurrentUser } from '$lib/server/auth';
+import { parseEventOverrides, saveEventHours } from '$lib/server/event-overrides';
 import { validateLength, validateFields, MAX_LENGTHS } from '$lib/server/validation';
 
 export const load: PageServerLoad = async (event) => {
@@ -83,6 +84,11 @@ export const actions: Actions = {
 			return fail(400, { error: 'Missing required fields' });
 		}
 
+		const overrides = parseEventOverrides(formData);
+		if ('error' in overrides) {
+			return fail(400, { error: overrides.error });
+		}
+
 		// Validate input lengths
 		const lengthError = validateFields([
 			validateLength(name.toString(), 'Name', MAX_LENGTHS.name, true),
@@ -113,11 +119,20 @@ export const actions: Actions = {
 			// Insert new event type
 			await db
 				.prepare(
-					`INSERT INTO event_types (user_id, name, slug, duration_minutes, description, is_active, cover_image, availability_calendars, invite_calendar, created_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+					`INSERT INTO event_types (user_id, name, slug, duration_minutes, description, is_active, cover_image, availability_calendars, invite_calendar,
+						buffer_minutes, min_notice_minutes, max_advance_days, created_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
 				)
-				.bind(userId, name, slugStr, parseInt(duration.toString()), description, isActive ? 1 : 0, coverImage, availabilityCalendars, inviteCalendar)
+				.bind(userId, name, slugStr, parseInt(duration.toString()), description, isActive ? 1 : 0, coverImage, availabilityCalendars, inviteCalendar, overrides.bufferMinutes, overrides.minNoticeMinutes, overrides.maxAdvanceDays)
 				.run();
+
+			if (overrides.hours) {
+				const created = await db
+					.prepare('SELECT id FROM event_types WHERE user_id = ? AND slug = ?')
+					.bind(userId, slugStr)
+					.first<{ id: string }>();
+				if (created) await saveEventHours(db, userId, created.id, overrides.hours);
+			}
 
 			throw redirect(302, '/dashboard');
 		} catch (error: any) {

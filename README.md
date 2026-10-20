@@ -12,7 +12,7 @@ A free, open-source meeting scheduler that runs on Cloudflare. Open-source Calen
 - Use Google alone, Outlook alone, or both calendars together
 - Automatic event creation with Google Meet or Microsoft Teams links
 - Customizable availability and working hours
-- Multiple event types (30 min, 1 hour, etc.)
+- Multiple event types (30 min, 1 hour, etc.) with per-event buffer, minimum notice, booking window and custom hours
 - Configurable email notifications (confirmation, cancellation, reminders)
 - Email settings dashboard to enable/disable and customize emails
 - One-click deploy and update via GitHub Actions
@@ -152,6 +152,19 @@ Instead of (or next to) the Google login you can protect the dashboard with Clou
 5. Add `CF_ACCESS_AUD` and `CF_ACCESS_TEAM_DOMAIN` to your GitHub secrets and re-deploy
 
 Without both secrets Cloudflare Access is ignored and only the Google login works. You still need to connect Google or Outlook once from the dashboard to sync calendars.
+
+## Per-Event Settings
+
+Each event type can override your global settings. Open **Dashboard** > an event type > **Booking Rules**:
+
+| Setting | Empty means | Effect |
+|---------|-------------|--------|
+| Buffer (minutes) | 0 | Free time kept before and after calendar events and other bookings |
+| Minimum notice (minutes) | none | Slots closer than this to now are hidden and cannot be booked |
+| Booking window (days) | 60 | Slots further ahead than this are hidden and cannot be booked |
+| Custom hours | your global availability | Own weekly hours for this event type only |
+
+Existing installs need migration `0009_event_type_overrides.sql`; the deploy workflow applies it automatically.
 
 ## Local Development
 

@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS event_types (
     cover_image TEXT,
     availability_calendars TEXT DEFAULT 'both', -- 'google', 'outlook', 'both'
     invite_calendar TEXT DEFAULT 'google', -- 'google' or 'outlook'
+    min_notice_minutes INTEGER, -- NULL = no minimum notice
+    max_advance_days INTEGER, -- NULL = default booking window (60 days)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE(user_id, slug)
