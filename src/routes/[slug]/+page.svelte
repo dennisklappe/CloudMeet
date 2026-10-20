@@ -195,6 +195,20 @@
 		}
 	}
 
+	// Reload the offered slots without touching the current selection
+	async function refreshAvailability() {
+		fetchMonthAvailability();
+		if (!selectedDate) return;
+		try {
+			const response = await fetch(`/api/availability?event=${data.slug}&date=${selectedDate}&_=${Date.now()}`);
+			if (!response.ok) return;
+			const result = await response.json() as { slots?: Array<{ start: string; end: string }> };
+			availableSlots = result.slots || [];
+		} catch (error) {
+			console.error('Error refreshing availability:', error);
+		}
+	}
+
 	function selectSlot(slot: { start: string; end: string }) {
 		selectedSlot = slot;
 	}
@@ -228,7 +242,6 @@
 				body: JSON.stringify({
 					eventSlug: data.slug,
 					startTime: selectedSlot?.start,
-					endTime: selectedSlot?.end,
 					attendeeName: bookingForm.name,
 					attendeeEmail: bookingForm.email,
 					notes: bookingForm.notes,
@@ -238,6 +251,10 @@
 
 			if (!response.ok) {
 				const errData = await response.json() as { message?: string };
+				if (response.status === 409) {
+					// The slot was taken in the meantime: refresh what is offered
+					refreshAvailability();
+				}
 				throw new Error(errData.message || 'Failed to create booking');
 			}
 

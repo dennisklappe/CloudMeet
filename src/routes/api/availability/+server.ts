@@ -9,9 +9,8 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getBusyTimes, getValidAccessToken } from '$lib/server/google-calendar';
-import { getOutlookBusyTimes, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
-import { generateSlots, loadRulesByDay, resolveEventLimits, type TimeSlot } from '$lib/server/slots';
+import { loadBusyTimes, parseUserSettings } from '$lib/server/busy';
+import { generateSlots, loadRulesByDay, resolveEventLimits } from '$lib/server/slots';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
 	const env = platform?.env;
@@ -50,13 +49,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
 		const userTimezone = user.timezone || 'UTC';
 
-		// Parse user settings for global calendar defaults
-		let userSettings: { defaultAvailabilityCalendars?: string; selectedGoogleCalendars?: string[] } = {};
-		try {
-			userSettings = user.settings ? JSON.parse(user.settings) : {};
-		} catch {
-			userSettings = {};
-		}
+		const userSettings = parseUserSettings(user.settings);
 
 		const eventType = await db
 			.prepare(
@@ -78,11 +71,6 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 			throw error(404, 'Event type not found or inactive');
 		}
 
-		// Get calendar settings: use event type override if set, otherwise use global settings
-		const availabilityCalendars = eventType.availability_calendars || userSettings.defaultAvailabilityCalendars || 'both';
-		const useGoogleCalendar = availabilityCalendars === 'google' || availabilityCalendars === 'both';
-		const useOutlookCalendar = availabilityCalendars === 'outlook' || availabilityCalendars === 'both';
-
 		// Parse date
 		const requestedDate = new Date(date);
 		const dayOfWeek = requestedDate.getDay();
@@ -100,66 +88,15 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		const startOfDay = new Date(requestedDate.getTime() - 24 * 60 * 60 * 1000);
 		const endOfDay = new Date(requestedDate.getTime() + 48 * 60 * 60 * 1000);
 
-		let busySlots: TimeSlot[] = [];
-
-		// Fetch Google Calendar busy times (if enabled in settings)
-		if (useGoogleCalendar) {
-			try {
-				const accessToken = await getValidAccessToken(
-					db,
-					user.id,
-					env.GOOGLE_CLIENT_ID,
-					env.GOOGLE_CLIENT_SECRET
-				);
-				// Use selected calendars if configured, otherwise query all
-				const selectedCalendars = userSettings.selectedGoogleCalendars;
-				const googleBusy = await getBusyTimes(accessToken, startOfDay, endOfDay, selectedCalendars);
-				busySlots.push(...googleBusy);
-			} catch (err) {
-				console.error('Error fetching Google Calendar busy times:', err);
-				// Continue without Google Calendar data if there's an error
-			}
-		}
-
-		// Fetch Outlook Calendar busy times (if configured, connected, and enabled in settings)
-		if (useOutlookCalendar && env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) {
-			try {
-				const outlookToken = await getValidOutlookAccessToken(
-					db,
-					user.id,
-					env.MICROSOFT_CLIENT_ID,
-					env.MICROSOFT_CLIENT_SECRET
-				);
-				const outlookBusy = await getOutlookBusyTimes(outlookToken, startOfDay, endOfDay);
-				busySlots.push(...outlookBusy);
-			} catch (err) {
-				// User may not have Outlook connected - that's fine
-				console.error('Error fetching Outlook Calendar busy times:', err);
-			}
-		}
-
-		// Get existing bookings for this date
-		const bookings = await db
-			.prepare(
-				`SELECT start_time, end_time
-				FROM bookings
-				WHERE user_id = ? AND start_time >= ? AND start_time < ? AND status = 'confirmed'
-				ORDER BY start_time`
-			)
-			.bind(user.id, startOfDay.toISOString(), endOfDay.toISOString())
-			.all<{ start_time: string; end_time: string }>();
-
-		// Combine busy slots from Google Calendar and bookings
-		const allBusySlots = [
-			...busySlots.map(slot => ({
-				start: slot.start,
-				end: slot.end
-			})),
-			...bookings.results.map(booking => ({
-				start: booking.start_time,
-				end: booking.end_time
-			}))
-		];
+		const allBusySlots = await loadBusyTimes(
+			env,
+			db,
+			user.id,
+			userSettings,
+			eventType.availability_calendars,
+			startOfDay,
+			endOfDay
+		);
 
 		// Generate available slots
 		const slots = generateSlots({

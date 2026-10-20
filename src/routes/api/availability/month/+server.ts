@@ -5,9 +5,8 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getBusyTimes, getValidAccessToken } from '$lib/server/google-calendar';
-import { getOutlookBusyTimes, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
-import { generateSlots, loadRulesByDay, resolveEventLimits, type TimeSlot } from '$lib/server/slots';
+import { loadBusyTimes, parseUserSettings } from '$lib/server/busy';
+import { generateSlots, loadRulesByDay, resolveEventLimits } from '$lib/server/slots';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
 	const env = platform?.env;
@@ -46,13 +45,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
 		const userTimezone = user.timezone || 'UTC';
 
-		// Parse user settings for global calendar defaults
-		let userSettings: { defaultAvailabilityCalendars?: string; selectedGoogleCalendars?: string[] } = {};
-		try {
-			userSettings = user.settings ? JSON.parse(user.settings) : {};
-		} catch {
-			userSettings = {};
-		}
+		const userSettings = parseUserSettings(user.settings);
 
 		const eventType = await db
 			.prepare(
@@ -74,11 +67,6 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 			throw error(404, 'Event type not found or inactive');
 		}
 
-		// Get calendar settings: use event type override if set, otherwise use global settings
-		const availabilityCalendars = eventType.availability_calendars || userSettings.defaultAvailabilityCalendars || 'both';
-		const useGoogleCalendar = availabilityCalendars === 'google' || availabilityCalendars === 'both';
-		const useOutlookCalendar = availabilityCalendars === 'outlook' || availabilityCalendars === 'both';
-
 		// Event specific hours, else the global schedule
 		const rulesByDay = await loadRulesByDay(db, user.id, eventType.id);
 		const limits = resolveEventLimits(eventType);
@@ -93,59 +81,15 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
 
-		// Get busy times from connected calendars for the entire month
-		let busySlots: TimeSlot[] = [];
-
-		// Fetch Google Calendar busy times (if enabled)
-		if (useGoogleCalendar) {
-			try {
-				const accessToken = await getValidAccessToken(
-					db,
-					user.id,
-					env.GOOGLE_CLIENT_ID,
-					env.GOOGLE_CLIENT_SECRET
-				);
-				// Use selected calendars if configured, otherwise query all
-				const selectedCalendars = userSettings.selectedGoogleCalendars;
-				const googleBusy = await getBusyTimes(accessToken, rangeStart, rangeEnd, selectedCalendars);
-				busySlots.push(...googleBusy);
-			} catch (err) {
-				console.error('Error fetching Google Calendar busy times:', err);
-			}
-		}
-
-		// Fetch Outlook Calendar busy times (if enabled and configured)
-		if (useOutlookCalendar && env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) {
-			try {
-				const outlookToken = await getValidOutlookAccessToken(
-					db,
-					user.id,
-					env.MICROSOFT_CLIENT_ID,
-					env.MICROSOFT_CLIENT_SECRET
-				);
-				const outlookBusy = await getOutlookBusyTimes(outlookToken, rangeStart, rangeEnd);
-				busySlots.push(...outlookBusy);
-			} catch (err) {
-				console.error('Error fetching Outlook Calendar busy times:', err);
-			}
-		}
-
-		// Get existing bookings for this month
-		const bookings = await db
-			.prepare(
-				`SELECT start_time, end_time
-				FROM bookings
-				WHERE user_id = ? AND start_time >= ? AND start_time <= ? AND status = 'confirmed'
-				ORDER BY start_time`
-			)
-			.bind(user.id, rangeStart.toISOString(), rangeEnd.toISOString())
-			.all<{ start_time: string; end_time: string }>();
-
-		// Combine all busy slots
-		const allBusySlots = [
-			...busySlots,
-			...bookings.results.map(b => ({ start: b.start_time, end: b.end_time }))
-		];
+		const allBusySlots = await loadBusyTimes(
+			env,
+			db,
+			user.id,
+			userSettings,
+			eventType.availability_calendars,
+			rangeStart,
+			rangeEnd
+		);
 
 		// Check each day in the month
 		const availableDates: string[] = [];
