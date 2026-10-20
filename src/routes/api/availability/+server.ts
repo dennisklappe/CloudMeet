@@ -11,11 +11,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getBusyTimes, getValidAccessToken } from '$lib/server/google-calendar';
 import { getOutlookBusyTimes, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
-
-interface TimeSlot {
-	start: string;
-	end: string;
-}
+import { generateSlots, loadRulesByDay, resolveEventLimits, type TimeSlot } from '$lib/server/slots';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
 	const env = platform?.env;
@@ -28,6 +24,9 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
 	if (!eventSlug || !date) {
 		throw error(400, 'Missing required parameters');
+	}
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(date).getTime())) {
+		throw error(400, 'Invalid date');
 	}
 
 	try {
@@ -60,9 +59,20 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		}
 
 		const eventType = await db
-			.prepare('SELECT id, duration_minutes as duration, availability_calendars FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1')
+			.prepare(
+				`SELECT id, duration_minutes as duration, availability_calendars,
+					buffer_minutes, min_notice_minutes, max_advance_days
+				FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1`
+			)
 			.bind(user.id, eventSlug)
-			.first<{ id: string; duration: number; availability_calendars: string | null }>();
+			.first<{
+				id: string;
+				duration: number;
+				availability_calendars: string | null;
+				buffer_minutes: number | null;
+				min_notice_minutes: number | null;
+				max_advance_days: number | null;
+			}>();
 
 		if (!eventType) {
 			throw error(404, 'Event type not found or inactive');
@@ -77,26 +87,18 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		const requestedDate = new Date(date);
 		const dayOfWeek = requestedDate.getDay();
 
-		// Get availability rules for this day
-		const availabilityRules = await db
-			.prepare(
-				`SELECT start_time, end_time
-				FROM availability_rules
-				WHERE user_id = ? AND day_of_week = ?
-				ORDER BY start_time`
-			)
-			.bind(user.id, dayOfWeek)
-			.all<{ start_time: string; end_time: string }>();
+		// Get availability rules for this day (event specific hours, else the global schedule)
+		const rulesByDay = await loadRulesByDay(db, user.id, eventType.id);
+		const availabilityRules = rulesByDay.get(dayOfWeek) ?? [];
 
-		if (!availabilityRules.results || availabilityRules.results.length === 0) {
+		if (availabilityRules.length === 0) {
 			return json({ slots: [] });
 		}
 
-		// Get busy times from connected calendars
-		const startOfDay = new Date(requestedDate);
-		startOfDay.setHours(0, 0, 0, 0);
-		const endOfDay = new Date(requestedDate);
-		endOfDay.setHours(23, 59, 59, 999);
+		// Get busy times from connected calendars. The window is a day wider on both
+		// sides because the host's local day does not line up with the UTC day.
+		const startOfDay = new Date(requestedDate.getTime() - 24 * 60 * 60 * 1000);
+		const endOfDay = new Date(requestedDate.getTime() + 48 * 60 * 60 * 1000);
 
 		let busySlots: TimeSlot[] = [];
 
@@ -141,10 +143,10 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 			.prepare(
 				`SELECT start_time, end_time
 				FROM bookings
-				WHERE user_id = ? AND DATE(start_time) = ? AND status = 'confirmed'
+				WHERE user_id = ? AND start_time >= ? AND start_time < ? AND status = 'confirmed'
 				ORDER BY start_time`
 			)
-			.bind(user.id, date)
+			.bind(user.id, startOfDay.toISOString(), endOfDay.toISOString())
 			.all<{ start_time: string; end_time: string }>();
 
 		// Combine busy slots from Google Calendar and bookings
@@ -160,95 +162,14 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		];
 
 		// Generate available slots
-		const slots: TimeSlot[] = [];
-
-		// Helper to create a Date in user's timezone
-		// Takes a date string (YYYY-MM-DD) and time string (HH:MM) in user's timezone
-		// and returns a UTC Date
-		function createDateInTimezone(dateStr: string, timeStr: string, timezone: string): Date {
-			const [hour, minute] = timeStr.split(':').map(Number);
-			// Create a date string that represents the time in the user's timezone
-			const dateTimeStr = `${dateStr}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
-
-			// Format the date in the target timezone to get the offset
-			const formatter = new Intl.DateTimeFormat('en-US', {
-				timeZone: timezone,
-				year: 'numeric',
-				month: '2-digit',
-				day: '2-digit',
-				hour: '2-digit',
-				minute: '2-digit',
-				second: '2-digit',
-				hour12: false
-			});
-
-			// Parse the target date/time and find the UTC equivalent
-			// We need to find what UTC time corresponds to this local time
-			const targetDate = new Date(dateTimeStr + 'Z'); // Start with UTC interpretation
-			const utcStr = targetDate.toISOString();
-
-			// Get what time it would be in the user's timezone if we used this UTC time
-			const parts = formatter.formatToParts(targetDate);
-			const tzHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
-			const tzMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
-
-			// Calculate the offset in minutes
-			const targetMinutes = hour * 60 + minute;
-			const actualMinutes = tzHour * 60 + tzMinute;
-			let offsetMinutes = actualMinutes - targetMinutes;
-
-			// Handle day boundary crossing
-			if (offsetMinutes > 12 * 60) offsetMinutes -= 24 * 60;
-			if (offsetMinutes < -12 * 60) offsetMinutes += 24 * 60;
-
-			// Adjust to get the correct UTC time
-			return new Date(targetDate.getTime() - offsetMinutes * 60 * 1000);
-		}
-
-		for (const rule of availabilityRules.results) {
-			// Create start and end times in user's timezone, converted to UTC
-			let currentTime = createDateInTimezone(date, rule.start_time, userTimezone);
-			const endTime = createDateInTimezone(date, rule.end_time, userTimezone);
-
-			// Generate slots every 30 minutes (or event duration, whichever is smaller)
-			const slotIncrement = Math.min(30, eventType.duration);
-
-			while (currentTime < endTime) {
-				const slotEnd = new Date(currentTime);
-				slotEnd.setMinutes(slotEnd.getMinutes() + eventType.duration);
-
-				// Check if slot end is within availability window
-				if (slotEnd > endTime) {
-					break;
-				}
-
-				// Check if slot is in the past
-				if (currentTime < new Date()) {
-					currentTime.setMinutes(currentTime.getMinutes() + slotIncrement);
-					continue;
-				}
-
-				// Check if slot conflicts with any busy time
-				const hasConflict = allBusySlots.some(busy => {
-					const busyStart = new Date(busy.start);
-					const busyEnd = new Date(busy.end);
-					return (
-						(currentTime >= busyStart && currentTime < busyEnd) ||
-						(slotEnd > busyStart && slotEnd <= busyEnd) ||
-						(currentTime <= busyStart && slotEnd >= busyEnd)
-					);
-				});
-
-				if (!hasConflict) {
-					slots.push({
-						start: currentTime.toISOString(),
-						end: slotEnd.toISOString()
-					});
-				}
-
-				currentTime.setMinutes(currentTime.getMinutes() + slotIncrement);
-			}
-		}
+		const slots = generateSlots({
+			dateStr: date,
+			rules: availabilityRules,
+			durationMinutes: eventType.duration,
+			timezone: userTimezone,
+			busy: allBusySlots,
+			limits: resolveEventLimits(eventType)
+		});
 
 		// Cache response in KV for 5 minutes
 		await env.KV.put(cacheKey, JSON.stringify({ slots }), { expirationTtl: 300 });

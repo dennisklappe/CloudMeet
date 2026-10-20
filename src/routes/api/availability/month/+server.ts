@@ -7,11 +7,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getBusyTimes, getValidAccessToken } from '$lib/server/google-calendar';
 import { getOutlookBusyTimes, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
-
-interface TimeSlot {
-	start: string;
-	end: string;
-}
+import { generateSlots, loadRulesByDay, resolveEventLimits, type TimeSlot } from '$lib/server/slots';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
 	const env = platform?.env;
@@ -24,6 +20,9 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 
 	if (!eventSlug || !month) {
 		throw error(400, 'Missing required parameters');
+	}
+	if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+		throw error(400, 'Invalid month');
 	}
 
 	try {
@@ -55,41 +54,21 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 			userSettings = {};
 		}
 
-		// Helper to create a Date in user's timezone
-		function createDateInTimezone(dateStr: string, timeStr: string, timezone: string): Date {
-			const [hour, minute] = timeStr.split(':').map(Number);
-			const dateTimeStr = `${dateStr}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
-
-			const formatter = new Intl.DateTimeFormat('en-US', {
-				timeZone: timezone,
-				year: 'numeric',
-				month: '2-digit',
-				day: '2-digit',
-				hour: '2-digit',
-				minute: '2-digit',
-				second: '2-digit',
-				hour12: false
-			});
-
-			const targetDate = new Date(dateTimeStr + 'Z');
-			const parts = formatter.formatToParts(targetDate);
-			const tzHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
-			const tzMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
-
-			const targetMinutes = hour * 60 + minute;
-			const actualMinutes = tzHour * 60 + tzMinute;
-			let offsetMinutes = actualMinutes - targetMinutes;
-
-			if (offsetMinutes > 12 * 60) offsetMinutes -= 24 * 60;
-			if (offsetMinutes < -12 * 60) offsetMinutes += 24 * 60;
-
-			return new Date(targetDate.getTime() - offsetMinutes * 60 * 1000);
-		}
-
 		const eventType = await db
-			.prepare('SELECT id, duration_minutes as duration, availability_calendars FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1')
+			.prepare(
+				`SELECT id, duration_minutes as duration, availability_calendars,
+					buffer_minutes, min_notice_minutes, max_advance_days
+				FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1`
+			)
 			.bind(user.id, eventSlug)
-			.first<{ id: string; duration: number; availability_calendars: string | null }>();
+			.first<{
+				id: string;
+				duration: number;
+				availability_calendars: string | null;
+				buffer_minutes: number | null;
+				min_notice_minutes: number | null;
+				max_advance_days: number | null;
+			}>();
 
 		if (!eventType) {
 			throw error(404, 'Event type not found or inactive');
@@ -100,35 +79,19 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		const useGoogleCalendar = availabilityCalendars === 'google' || availabilityCalendars === 'both';
 		const useOutlookCalendar = availabilityCalendars === 'outlook' || availabilityCalendars === 'both';
 
-		// Get all availability rules for this user
-		const allRules = await db
-			.prepare(
-				`SELECT day_of_week, start_time, end_time
-				FROM availability_rules
-				WHERE user_id = ?
-				ORDER BY day_of_week, start_time`
-			)
-			.bind(user.id)
-			.all<{ day_of_week: number; start_time: string; end_time: string }>();
-
-		// Group rules by day of week
-		const rulesByDay = new Map<number, Array<{ start_time: string; end_time: string }>>();
-		for (const rule of allRules.results || []) {
-			if (!rulesByDay.has(rule.day_of_week)) {
-				rulesByDay.set(rule.day_of_week, []);
-			}
-			rulesByDay.get(rule.day_of_week)!.push({ start_time: rule.start_time, end_time: rule.end_time });
-		}
+		// Event specific hours, else the global schedule
+		const rulesByDay = await loadRulesByDay(db, user.id, eventType.id);
+		const limits = resolveEventLimits(eventType);
 
 		// Parse month to get date range
 		const [year, monthNum] = month.split('-').map(Number);
 		const firstDay = new Date(year, monthNum - 1, 1);
 		const lastDay = new Date(year, monthNum, 0);
+		// Busy times are fetched until the end of the last day, with a day of slack for timezone offsets
+		const rangeStart = new Date(firstDay.getTime() - 24 * 60 * 60 * 1000);
+		const rangeEnd = new Date(lastDay.getTime() + 48 * 60 * 60 * 1000);
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
-
-		// Max date is 60 days from today
-		const maxDate = new Date(today.getTime() + 60 * 24 * 60 * 60 * 1000);
 
 		// Get busy times from connected calendars for the entire month
 		let busySlots: TimeSlot[] = [];
@@ -144,7 +107,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 				);
 				// Use selected calendars if configured, otherwise query all
 				const selectedCalendars = userSettings.selectedGoogleCalendars;
-				const googleBusy = await getBusyTimes(accessToken, firstDay, lastDay, selectedCalendars);
+				const googleBusy = await getBusyTimes(accessToken, rangeStart, rangeEnd, selectedCalendars);
 				busySlots.push(...googleBusy);
 			} catch (err) {
 				console.error('Error fetching Google Calendar busy times:', err);
@@ -160,7 +123,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 					env.MICROSOFT_CLIENT_ID,
 					env.MICROSOFT_CLIENT_SECRET
 				);
-				const outlookBusy = await getOutlookBusyTimes(outlookToken, firstDay, lastDay);
+				const outlookBusy = await getOutlookBusyTimes(outlookToken, rangeStart, rangeEnd);
 				busySlots.push(...outlookBusy);
 			} catch (err) {
 				console.error('Error fetching Outlook Calendar busy times:', err);
@@ -175,7 +138,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 				WHERE user_id = ? AND start_time >= ? AND start_time <= ? AND status = 'confirmed'
 				ORDER BY start_time`
 			)
-			.bind(user.id, firstDay.toISOString(), lastDay.toISOString())
+			.bind(user.id, rangeStart.toISOString(), rangeEnd.toISOString())
 			.all<{ start_time: string; end_time: string }>();
 
 		// Combine all busy slots
@@ -190,58 +153,25 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		for (let day = 1; day <= lastDay.getDate(); day++) {
 			const date = new Date(year, monthNum - 1, day);
 
-			// Skip dates before today or after maxDate
-			if (date < today || date > maxDate) continue;
+			// Skip dates before today
+			if (date < today) continue;
 
-			const dayOfWeek = date.getDay();
-			const rules = rulesByDay.get(dayOfWeek);
-
-			// No availability rules for this day
+			const rules = rulesByDay.get(date.getDay());
 			if (!rules || rules.length === 0) continue;
 
 			// Check if at least one slot is available
 			const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-			let hasAvailableSlot = false;
+			const slots = generateSlots({
+				dateStr,
+				rules,
+				durationMinutes: eventType.duration,
+				timezone: userTimezone,
+				busy: allBusySlots,
+				limits,
+				stopAtFirst: true
+			});
 
-			for (const rule of rules) {
-				if (hasAvailableSlot) break;
-
-				// Create start and end times in user's timezone, converted to UTC
-				let currentTime = createDateInTimezone(dateStr, rule.start_time, userTimezone);
-				const endTime = createDateInTimezone(dateStr, rule.end_time, userTimezone);
-
-				const slotIncrement = Math.min(30, eventType.duration);
-
-				while (currentTime < endTime && !hasAvailableSlot) {
-					const slotEnd = new Date(currentTime);
-					slotEnd.setMinutes(slotEnd.getMinutes() + eventType.duration);
-
-					if (slotEnd > endTime) break;
-					if (currentTime < new Date()) {
-						currentTime.setMinutes(currentTime.getMinutes() + slotIncrement);
-						continue;
-					}
-
-					// Check conflicts
-					const hasConflict = allBusySlots.some(busy => {
-						const busyStart = new Date(busy.start);
-						const busyEnd = new Date(busy.end);
-						return (
-							(currentTime >= busyStart && currentTime < busyEnd) ||
-							(slotEnd > busyStart && slotEnd <= busyEnd) ||
-							(currentTime <= busyStart && slotEnd >= busyEnd)
-						);
-					});
-
-					if (!hasConflict) {
-						hasAvailableSlot = true;
-					}
-
-					currentTime.setMinutes(currentTime.getMinutes() + slotIncrement);
-				}
-			}
-
-			if (hasAvailableSlot) {
+			if (slots.length > 0) {
 				availableDates.push(dateStr);
 			}
 		}

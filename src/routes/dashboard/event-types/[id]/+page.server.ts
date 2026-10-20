@@ -6,6 +6,7 @@ import { redirect, fail, error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { getCurrentUser } from '$lib/server/auth';
 import { validateLength, validateFields, MAX_LENGTHS } from '$lib/server/validation';
+import { parseEventOverrides, saveEventHours } from '$lib/server/event-overrides';
 
 export const load: PageServerLoad = async (event) => {
 	const userId = await getCurrentUser(event);
@@ -45,7 +46,7 @@ export const load: PageServerLoad = async (event) => {
 	const eventType = await db
 		.prepare(
 			`SELECT id, name, slug, duration_minutes as duration, description, is_active, cover_image,
-				availability_calendars, invite_calendar
+				availability_calendars, invite_calendar, buffer_minutes, min_notice_minutes, max_advance_days
 			FROM event_types
 			WHERE id = ? AND user_id = ?`
 		)
@@ -60,14 +61,27 @@ export const load: PageServerLoad = async (event) => {
 			cover_image: string | null;
 			availability_calendars: string | null;
 			invite_calendar: string | null;
+			buffer_minutes: number | null;
+			min_notice_minutes: number | null;
+			max_advance_days: number | null;
 		}>();
 
 	if (!eventType) {
 		throw error(404, 'Event type not found');
 	}
 
+	const customHours = await db
+		.prepare(
+			`SELECT day_of_week, start_time, end_time FROM availability_rules
+			WHERE user_id = ? AND event_type_id = ? AND is_active = 1
+			ORDER BY day_of_week, start_time`
+		)
+		.bind(userId, eventTypeId)
+		.all<{ day_of_week: number; start_time: string; end_time: string }>();
+
 	return {
 		eventType,
+		customHours: customHours.results ?? [],
 		googleConnected: !!user?.google_refresh_token,
 		outlookConnected: !!user?.outlook_refresh_token,
 		outlookConfigured,
@@ -117,6 +131,11 @@ export const actions: Actions = {
 			return fail(400, { error: 'Missing required fields' });
 		}
 
+		const overrides = parseEventOverrides(formData);
+		if ('error' in overrides) {
+			return fail(400, { error: overrides.error });
+		}
+
 		// Validate input lengths
 		const lengthError = validateFields([
 			validateLength(name.toString(), 'Name', MAX_LENGTHS.name, true),
@@ -151,7 +170,8 @@ export const actions: Actions = {
 				.prepare(
 					`UPDATE event_types
 					SET name = ?, slug = ?, duration_minutes = ?, description = ?, is_active = ?, cover_image = ?,
-						availability_calendars = ?, invite_calendar = ?
+						availability_calendars = ?, invite_calendar = ?,
+						buffer_minutes = ?, min_notice_minutes = ?, max_advance_days = ?
 					WHERE id = ? AND user_id = ?`
 				)
 				.bind(
@@ -163,10 +183,15 @@ export const actions: Actions = {
 					coverImage ? coverImage.toString() : null,
 					availabilityCalendars ? availabilityCalendars.toString() : null,
 					inviteCalendar ? inviteCalendar.toString() : null,
+					overrides.bufferMinutes,
+					overrides.minNoticeMinutes,
+					overrides.maxAdvanceDays,
 					eventTypeId,
 					userId
 				)
 				.run();
+
+			await saveEventHours(db, userId, eventTypeId, overrides.hours);
 
 			throw redirect(302, '/dashboard');
 		} catch (error: any) {

@@ -12,7 +12,7 @@ A free, open-source meeting scheduler that runs on Cloudflare. Open-source Calen
 - Use Google alone, Outlook alone, or both calendars together
 - Automatic event creation with Google Meet or Microsoft Teams links
 - Customizable availability and working hours
-- Multiple event types (30 min, 1 hour, etc.)
+- Multiple event types (30 min, 1 hour, etc.) with per-event buffer, minimum notice, booking window and custom hours
 - Configurable email notifications (confirmation, cancellation, reminders)
 - Email settings dashboard to enable/disable and customize emails
 - One-click deploy and update via GitHub Actions

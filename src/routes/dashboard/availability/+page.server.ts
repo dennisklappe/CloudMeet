@@ -23,7 +23,7 @@ export const load: PageServerLoad = async (event) => {
 		.prepare(
 			`SELECT id, day_of_week, start_time, end_time
 			FROM availability_rules
-			WHERE user_id = ?
+			WHERE user_id = ? AND event_type_id IS NULL
 			ORDER BY day_of_week, start_time`
 		)
 		.bind(userId)
@@ -80,7 +80,7 @@ export const actions: Actions = {
 
 			// Delete existing rules
 			await db
-				.prepare('DELETE FROM availability_rules WHERE user_id = ?')
+				.prepare('DELETE FROM availability_rules WHERE user_id = ? AND event_type_id IS NULL')
 				.bind(userId)
 				.run();
 
