@@ -8,6 +8,8 @@ import type { RequestHandler } from './$types';
 import { createCalendarEvent, getValidAccessToken } from '$lib/server/google-calendar';
 import { createOutlookCalendarEvent, getValidOutlookAccessToken } from '$lib/server/outlook-calendar';
 import { sendBookingEmail, sendAdminNotificationEmail, getEmailTemplates, isEmailEnabled, type EmailTemplateType } from '$lib/server/email';
+import { loadBusyTimes, parseUserSettings } from '$lib/server/busy';
+import { generateSlots, loadRulesByDay, resolveEventLimits } from '$lib/server/slots';
 import { isValidEmail, validateLength, validateFields, MAX_LENGTHS } from '$lib/server/validation';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
@@ -20,17 +22,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		const body = await request.json() as {
 			eventSlug: string;
 			startTime: string;
-			endTime: string;
 			attendeeName: string;
 			attendeeEmail: string;
 			notes?: string;
 			turnstileToken?: string;
 			timezone?: string;
 		};
-		const { eventSlug, startTime, endTime, attendeeName, attendeeEmail, notes, turnstileToken, timezone } = body;
+		const { eventSlug, startTime, attendeeName, attendeeEmail, notes, turnstileToken, timezone } = body;
 
 		// Validate required fields
-		if (!eventSlug || !startTime || !endTime || !attendeeName || !attendeeEmail) {
+		if (!eventSlug || !startTime || !attendeeName || !attendeeEmail) {
 			throw error(400, 'Missing required fields');
 		}
 
@@ -75,29 +76,37 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 		// Get the first (and only) user for single-user setup
 		const user = await db
-			.prepare('SELECT id, email, name, slug, contact_email, settings, brand_color, outlook_refresh_token FROM users LIMIT 1')
-			.first<{ id: string; email: string; name: string; slug: string; contact_email: string | null; settings: string | null; brand_color: string | null; outlook_refresh_token: string | null }>();
+			.prepare('SELECT id, email, name, slug, contact_email, settings, brand_color, outlook_refresh_token, timezone FROM users LIMIT 1')
+			.first<{ id: string; email: string; name: string; slug: string; contact_email: string | null; settings: string | null; brand_color: string | null; outlook_refresh_token: string | null; timezone: string | null }>();
 
 		if (!user) {
 			throw error(404, 'User not found');
 		}
 
 		const eventType = await db
-			.prepare('SELECT id, name, duration_minutes as duration, description, invite_calendar FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1')
+			.prepare(
+				`SELECT id, name, duration_minutes as duration, description, invite_calendar, availability_calendars,
+					buffer_minutes, min_notice_minutes, max_advance_days
+				FROM event_types WHERE user_id = ? AND slug = ? AND is_active = 1`
+			)
 			.bind(user.id, eventSlug)
-			.first<{ id: string; name: string; duration: number; description: string; invite_calendar: string | null }>();
+			.first<{
+				id: string;
+				name: string;
+				duration: number;
+				description: string;
+				invite_calendar: string | null;
+				availability_calendars: string | null;
+				buffer_minutes: number | null;
+				min_notice_minutes: number | null;
+				max_advance_days: number | null;
+			}>();
 
 		if (!eventType) {
 			throw error(404, 'Event type not found or inactive');
 		}
 
-		// Parse user settings for global calendar defaults
-		let userSettings: { defaultInviteCalendar?: string } = {};
-		try {
-			userSettings = user.settings ? JSON.parse(user.settings) : {};
-		} catch {
-			userSettings = {};
-		}
+		const userSettings = parseUserSettings<{ defaultInviteCalendar?: string; defaultAvailabilityCalendars?: string; selectedGoogleCalendars?: string[] }>(user.settings);
 
 		// Get calendar settings: use event type override if set, otherwise use global settings
 		// Fall back to Google if Outlook was selected but is no longer connected
@@ -108,25 +117,45 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			inviteCalendar = 'google'; // Fall back to Google
 		}
 
-		// Verify slot is still available
+		// The end time always follows from the event duration, never from the client
 		const startDateTime = new Date(startTime);
-		const endDateTime = new Date(endTime);
+		if (Number.isNaN(startDateTime.getTime())) {
+			throw error(400, 'Invalid start time');
+		}
+		const endDateTime = new Date(startDateTime.getTime() + eventType.duration * 60 * 1000);
+		const startIso = startDateTime.toISOString();
+		const endIso = endDateTime.toISOString();
 
-		// Check for conflicts with existing bookings
-		const conflict = await db
-			.prepare(
-				`SELECT id FROM bookings
-				WHERE user_id = ? AND status = 'confirmed'
-				AND (
-					(start_time <= ? AND end_time > ?)
-					OR (start_time < ? AND end_time >= ?)
-					OR (start_time >= ? AND end_time <= ?)
-				)`
-			)
-			.bind(user.id, startTime, startTime, endTime, endTime, startTime, endTime)
-			.first();
+		// Verify the slot is still offered: inside the (event specific) hours, outside the
+		// notice and booking window, not clashing with calendars, bookings or the buffer
+		const hostTimezone = user.timezone || 'UTC';
+		const hostDate = new Intl.DateTimeFormat('en-CA', {
+			timeZone: hostTimezone,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit'
+		}).format(startDateTime);
+		const rulesByDay = await loadRulesByDay(db, user.id, eventType.id);
+		const hostDayOfWeek = new Date(`${hostDate}T12:00:00Z`).getUTCDay();
+		const busy = await loadBusyTimes(
+			env,
+			db,
+			user.id,
+			userSettings,
+			eventType.availability_calendars,
+			new Date(startDateTime.getTime() - 24 * 60 * 60 * 1000),
+			new Date(startDateTime.getTime() + 48 * 60 * 60 * 1000)
+		);
+		const offered = generateSlots({
+			dateStr: hostDate,
+			rules: rulesByDay.get(hostDayOfWeek) ?? [],
+			durationMinutes: eventType.duration,
+			timezone: hostTimezone,
+			busy,
+			limits: resolveEventLimits(eventType)
+		});
 
-		if (conflict) {
+		if (!offered.some((slot) => slot.start === startIso)) {
 			throw error(409, 'This time slot is no longer available');
 		}
 
@@ -215,8 +244,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			.bind(
 				user.id,
 				eventType.id,
-				startTime,
-				endTime,
+				startIso,
+				endIso,
 				attendeeName,
 				attendeeEmail,
 				notes || null,
@@ -227,9 +256,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			.run();
 
 		// Invalidate availability cache
-		const dateStr = startDateTime.toISOString().split('T')[0];
-		const cacheKey = `availability:${eventSlug}:${dateStr}`;
-		await env.KV.delete(cacheKey);
+		await env.KV.delete(`availability:${eventSlug}:${hostDate}`);
+		await env.KV.delete(`availability:month:${eventSlug}:${hostDate.slice(0, 7)}`);
 
 		// Send booking confirmation email via Emailit (if enabled)
 		if (env.EMAILIT_API_KEY) {
@@ -249,7 +277,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				// Get the booking ID (it's a UUID string, not integer)
 				const bookingResult = await db
 					.prepare('SELECT id FROM bookings WHERE google_event_id = ? OR outlook_event_id = ? OR (user_id = ? AND start_time = ? AND attendee_email = ?)')
-					.bind(googleEventId, outlookEventId, user.id, startTime, attendeeEmail)
+					.bind(googleEventId, outlookEventId, user.id, startIso, attendeeEmail)
 					.first<{ id: string }>();
 				const bookingId = bookingResult?.id || result.meta.last_row_id?.toString() || '';
 
