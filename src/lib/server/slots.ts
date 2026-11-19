@@ -90,19 +90,27 @@ export function createDateInTimezone(dateStr: string, timeStr: string, timezone:
 		hour12: false
 	});
 
-	// Start with a UTC interpretation and correct it by the timezone offset
+	// Offset of the timezone at an instant, from the full zoned date so offsets
+	// beyond +-12h (UTC+13, UTC+14) come out right
+	const offsetAt = (instant: Date) => {
+		const parts = formatter.formatToParts(instant);
+		const part = (type: string) => parseInt(parts.find((p) => p.type === type)?.value || '0');
+		const zonedAsUtc = Date.UTC(
+			part('year'),
+			part('month') - 1,
+			part('day'),
+			part('hour') % 24,
+			part('minute'),
+			part('second')
+		);
+		return zonedAsUtc - instant.getTime();
+	};
+
+	// Start with a UTC interpretation, then correct it with the offset in force
+	// at the guessed instant (it differs on a DST change day)
 	const targetDate = new Date(dateTimeStr + 'Z');
-	const parts = formatter.formatToParts(targetDate);
-	const tzHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0');
-	const tzMinute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0');
-
-	let offsetMinutes = tzHour * 60 + tzMinute - (hour * 60 + minute);
-
-	// Handle day boundary crossing
-	if (offsetMinutes > 12 * 60) offsetMinutes -= 24 * 60;
-	if (offsetMinutes < -12 * 60) offsetMinutes += 24 * 60;
-
-	return new Date(targetDate.getTime() - offsetMinutes * MINUTE_MS);
+	const guess = new Date(targetDate.getTime() - offsetAt(targetDate));
+	return new Date(targetDate.getTime() - offsetAt(guess));
 }
 
 /**
