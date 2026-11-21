@@ -173,7 +173,7 @@ export async function createCalendarEvent(
 	calendarId: string = 'primary'
 ): Promise<CalendarEvent> {
 	const response = await fetch(
-		`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?conferenceDataVersion=1`,
+		`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?conferenceDataVersion=1&sendUpdates=all`,
 		{
 			method: 'POST',
 			headers: {
@@ -208,7 +208,7 @@ export async function updateCalendarEvent(
 	calendarId: string = 'primary'
 ): Promise<CalendarEvent> {
 	const response = await fetch(
-		`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
+		`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}?sendUpdates=all`,
 		{
 			method: 'PATCH',
 			headers: {
@@ -236,7 +236,7 @@ export async function cancelCalendarEvent(
 	calendarId: string = 'primary'
 ): Promise<void> {
 	const response = await fetch(
-		`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
+		`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}?sendUpdates=all`,
 		{
 			method: 'DELETE',
 			headers: {
